@@ -6,7 +6,7 @@ import kotlinx.serialization.Serializable
 data class MemoryEntry(
     val type: String,
     val content: String,
-    val date: String,
+    val date: String = "",
     val due: String? = null
 )
 
