@@ -45,6 +45,8 @@ data class ChatMessage(
     val id: String = UUID.randomUUID().toString(),
     val role: String,
     val text: String,
+    val thinking: String? = null,
+    val isThinkingDone: Boolean = false,
     val bitmap: Bitmap? = null,
     val audio: AudioHolder? = null,
     val audioAmplitudes: List<Float> = emptyList(),
@@ -63,6 +65,8 @@ data class ChatUiState(
  *  invalidate the messages list reference and force the whole LazyColumn to diff. */
 data class StreamingState(
     val streamingText: String = "",
+    val streamingThinking: String? = null,
+    val isThinking: Boolean = false,
     val isGenerating: Boolean = false
 )
 
@@ -204,6 +208,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         userMessage: ChatMessage
     ) {
         val responseBuilder = java.lang.StringBuilder()
+        val thinkingBuilder = java.lang.StringBuilder()
         val currentContext = buildRecentHistoryContext()
         val memoryRegex = Regex("""```memory\s*([\s\S]*?)```""", RegexOption.MULTILINE)
         
@@ -220,16 +225,34 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             }
             
             var tokenCount = 0
-            flowProxy.collect { token ->
-                responseBuilder.append(token)
-                tokenCount++
-                // Only strip the hidden memory block regex every 8 tokens to avoid
-                // running a full-string regex sweep on every single token arrival.
-                if (tokenCount % 8 == 0) {
-                    val streamDisplay = responseBuilder.toString().replace(memoryRegex, "").trimEnd()
-                    _streamingState.value = _streamingState.value.copy(streamingText = streamDisplay)
-                } else {
-                    _streamingState.value = _streamingState.value.copy(streamingText = responseBuilder.toString().trimEnd())
+            flowProxy.collect { result ->
+                if (result.isDone) return@collect
+
+                if (result.partialThinking != null) {
+                    thinkingBuilder.append(result.partialThinking)
+                    _streamingState.value = _streamingState.value.copy(
+                        streamingThinking = thinkingBuilder.toString(),
+                        isThinking = true
+                    )
+                }
+
+                if (result.partialText.isNotEmpty()) {
+                    responseBuilder.append(result.partialText)
+                    tokenCount++
+                    // Only strip the hidden memory block regex every 8 tokens to avoid
+                    // running a full-string regex sweep on every single token arrival.
+                    if (tokenCount % 8 == 0) {
+                        val streamDisplay = responseBuilder.toString().replace(memoryRegex, "").trimEnd()
+                        _streamingState.value = _streamingState.value.copy(
+                            streamingText = streamDisplay,
+                            isThinking = false
+                        )
+                    } else {
+                        _streamingState.value = _streamingState.value.copy(
+                            streamingText = responseBuilder.toString().trimEnd(),
+                            isThinking = false
+                        )
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -298,18 +321,23 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             }
             // ─────────────────────────────────────────────────────────────
 
-            if (displayText.isNotBlank()) {
-                val finalMessage = ChatMessage(role = "zora", text = displayText)
+            if (displayText.isNotBlank() || thinkingBuilder.isNotEmpty()) {
+                val finalMessage = ChatMessage(
+                    role = "zora", 
+                    text = displayText,
+                    thinking = if (thinkingBuilder.isNotEmpty()) thinkingBuilder.toString() else null,
+                    isThinkingDone = true
+                )
                 val updatedMessages = listOf(finalMessage) + _uiState.value.messages
                 _uiState.value = _uiState.value.copy(
                     messages = updatedMessages
                 )
-                _streamingState.value = StreamingState(isGenerating = false, streamingText = "")
+                _streamingState.value = StreamingState(isGenerating = false, streamingText = "", streamingThinking = null, isThinking = false)
                 chatRepo.addMessage(finalMessage)
                 sessionTranscript.add("zora" to displayText)
             } else {
                 // Memory-only reply: no bubble, but clear generating state
-                _streamingState.value = StreamingState(isGenerating = false, streamingText = "")
+                _streamingState.value = StreamingState(isGenerating = false, streamingText = "", streamingThinking = null, isThinking = false)
             }
         }
     }
@@ -318,8 +346,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         generationJob?.cancel()
         val currentMessages = _uiState.value.messages
         val streamingText = _streamingState.value.streamingText
-        if (streamingText.isNotBlank()) {
-            val partial = ChatMessage(role = "zora", text = streamingText)
+        val streamingThinking = _streamingState.value.streamingThinking
+        if (streamingText.isNotBlank() || streamingThinking != null) {
+            val partial = ChatMessage(
+                role = "zora", 
+                text = streamingText,
+                thinking = streamingThinking,
+                isThinkingDone = true
+            )
             viewModelScope.launch {
                 chatRepo.addMessage(partial)
             }
@@ -327,7 +361,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 messages = listOf(partial) + currentMessages
             )
         }
-        _streamingState.value = StreamingState(isGenerating = false, streamingText = "")
+        _streamingState.value = StreamingState(isGenerating = false, streamingText = "", streamingThinking = null, isThinking = false)
     }
 
     fun consolidateMemory() {

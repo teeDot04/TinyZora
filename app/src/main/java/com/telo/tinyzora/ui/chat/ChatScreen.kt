@@ -89,6 +89,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.telo.tinyzora.core.richtext.MessageBlock
 import com.telo.tinyzora.core.richtext.MessageParser
 import com.telo.tinyzora.ui.chat.components.CodeBlockCard
+import com.telo.tinyzora.ui.chat.components.MessageBodyThinking
 
 import com.telo.tinyzora.ui.chat.components.LatexCard
 import com.telo.tinyzora.ui.chat.components.TableCard
@@ -552,10 +553,15 @@ fun ChatScreen(
                     }
                 }
                 // Streaming bubble while tokens arrive
-                if (streamingState.isGenerating && streamingState.streamingText.isNotEmpty()) {
+                if (streamingState.isGenerating && (streamingState.streamingText.isNotEmpty() || streamingState.streamingThinking != null)) {
                     item(key = "streaming_bubble") {
-                        val streamingMessage = remember(streamingState.streamingText) {
-                            ChatMessage(role = "zora", text = streamingState.streamingText)
+                        val streamingMessage = remember(streamingState.streamingText, streamingState.streamingThinking) {
+                            ChatMessage(
+                                role = "zora", 
+                                text = streamingState.streamingText,
+                                thinking = streamingState.streamingThinking,
+                                isThinkingDone = !streamingState.isThinking
+                            )
                         }
                         MessageBubble(message = streamingMessage)
                         Spacer(modifier = Modifier.height(8.dp))
@@ -1015,10 +1021,16 @@ fun MessageBubble(
                                             fontWeight = FontWeight.Bold,
                                             letterSpacing = 0.5.sp
                                         ),
-                                        color = contentColor.copy(alpha = 0.8f)
-                                    )
-                                }
                             }
+                        }
+
+                        // Thinking content
+                        message.thinking?.let { thinking ->
+                            MessageBodyThinking(
+                                thinkingText = thinking,
+                                inProgress = !message.isThinkingDone
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
                         }
 
                         if (message.text.isNotBlank()) {

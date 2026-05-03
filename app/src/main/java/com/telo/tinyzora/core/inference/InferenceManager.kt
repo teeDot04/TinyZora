@@ -26,20 +26,23 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
     private var engine: Engine? = null
     private var conversation: Conversation? = null
     private val mutex = Mutex()
-    private val modelPath = "/data/local/tmp/gemma-3-2b-it-cpu-int4.litertlm"
+    private val userPrefs = com.telo.tinyzora.core.security.UserPreferences(context)
     private var activeMode: String = "text"
 
     suspend fun initialise(chatContext: String? = null): Boolean = withContext(Dispatchers.IO) {
         try {
-            val visionB = if (activeMode == "image") Backend.GPU else null
-            val audioB = if (activeMode == "audio") Backend.CPU else null
+            val visionB = if (activeMode == "image") Backend.GPU() else null
+            val audioB = if (activeMode == "audio") Backend.CPU() else null
+
+            val modelPath = userPrefs.getModelPath()
+            val maxTokens = userPrefs.getMaxTokens()
 
             val config = EngineConfig(
                 modelPath = modelPath,
-                backend = Backend.CPU,
+                backend = Backend.CPU(),
                 visionBackend = visionB,
                 audioBackend = audioB,
-                maxNumTokens = 4096,
+                maxNumTokens = maxTokens,
                 cacheDir = context.cacheDir.absolutePath
             )
             engine = Engine(config)
@@ -73,9 +76,16 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
                 systemInstruction += "\n\n=== RECENT CONVERSATION CONTEXT ===\n$chatContext\n==================================="
             }
             
+            val samplerConfig = SamplerConfig(
+                topK = userPrefs.getTopK(),
+                topP = userPrefs.getTopP().toDouble(),
+                temperature = userPrefs.getTemperature().toDouble()
+            )
+
             conversation = engine?.createConversation(
                 ConversationConfig(
-                    systemInstruction = Contents.of(listOf(Content.Text(systemInstruction)))
+                    systemInstruction = Contents.of(listOf(Content.Text(systemInstruction))),
+                    samplerConfig = samplerConfig
                 )
             )
             
@@ -117,9 +127,16 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
                     systemInstruction += "\n\n=== RECENT CONVERSATION CONTEXT ===\n$chatContext\n==================================="
                 }
                 
+                val samplerConfig = SamplerConfig(
+                    topK = userPrefs.getTopK(),
+                    topP = userPrefs.getTopP().toDouble(),
+                    temperature = userPrefs.getTemperature().toDouble()
+                )
+
                 conversation = engine?.createConversation(
                     ConversationConfig(
-                        systemInstruction = Contents.of(listOf(Content.Text(systemInstruction)))
+                        systemInstruction = Contents.of(listOf(Content.Text(systemInstruction))),
+                        samplerConfig = samplerConfig
                     )
                 )
                 ConsoleLogger.d(TAG, "Conversation context wiped and rebuilt.")
@@ -129,17 +146,34 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
         }
     }
 
-    fun sendMessage(text: String): Flow<String> = flow {
+    fun sendMessage(text: String): Flow<InferenceResult> = flow {
         mutex.withLock {
             val conv = conversation ?: throw IllegalStateException("Conversation not initialized")
             val contents = Contents.of(listOf(Content.Text(text)))
-            conv.sendMessageAsync(contents).collect { message ->
-                emit(message.toString())
+            
+            kotlinx.coroutines.channels.Channel<InferenceResult>(kotlinx.coroutines.channels.Channel.UNLIMITED).also { channel ->
+                conv.sendMessageAsync(contents, object : MessageCallback {
+                    override fun onMessage(message: Message) {
+                        val thought = message.channels["thought"]
+                        channel.trySend(InferenceResult(partialText = message.toString(), isDone = false, partialThinking = thought))
+                    }
+                    override fun onDone() {
+                        channel.trySend(InferenceResult(partialText = "", isDone = true))
+                        channel.close()
+                    }
+                    override fun onError(throwable: Throwable) {
+                        channel.close(throwable)
+                    }
+                }, mapOf("enable_thinking" to "true"))
+                
+                for (result in channel) {
+                    emit(result)
+                }
             }
         }
     }.flowOn(Dispatchers.IO)
 
-    fun sendMessageWithImage(text: String, bitmap: Bitmap): Flow<String> = flow {
+    fun sendMessageWithImage(text: String, bitmap: Bitmap): Flow<InferenceResult> = flow {
         mutex.withLock {
             val conv = conversation ?: throw IllegalStateException("Conversation not initialized")
             
@@ -148,51 +182,93 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
             val byteArray = stream.toByteArray()
             
             val contents = Contents.of(listOf(Content.ImageBytes(byteArray), Content.Text(text)))
-            conv.sendMessageAsync(contents).collect { message ->
-                emit(message.toString())
+            
+            kotlinx.coroutines.channels.Channel<InferenceResult>(kotlinx.coroutines.channels.Channel.UNLIMITED).also { channel ->
+                conv.sendMessageAsync(contents, object : MessageCallback {
+                    override fun onMessage(message: Message) {
+                        val thought = message.channels["thought"]
+                        channel.trySend(InferenceResult(partialText = message.toString(), isDone = false, partialThinking = thought))
+                    }
+                    override fun onDone() {
+                        channel.trySend(InferenceResult(partialText = "", isDone = true))
+                        channel.close()
+                    }
+                    override fun onError(throwable: Throwable) {
+                        channel.close(throwable)
+                    }
+                }, mapOf("enable_thinking" to "true"))
+                
+                for (result in channel) {
+                    emit(result)
+                }
             }
         }
     }.flowOn(Dispatchers.IO)
     
     // Kept audio capability active to preserve established multimodal logic implicitly requested yesterday
-    fun sendMessageWithAudio(text: String, audioBytes: ByteArray): Flow<String> = flow {
+    fun sendMessageWithAudio(text: String, audioBytes: ByteArray): Flow<InferenceResult> = flow {
         mutex.withLock {
             val conv = conversation ?: throw IllegalStateException("Conversation not initialized")
             if (audioBytes.isEmpty()) {
-                emit("Error: Received empty audio buffer.")
+                emit(InferenceResult("Error: Received empty audio buffer.", true))
                 return@withLock
             }
             try {
                 val contents = Contents.of(listOf(Content.AudioBytes(audioBytes), Content.Text(text)))
-                conv.sendMessageAsync(contents).collect { message ->
-                    emit(message.toString())
+                
+                kotlinx.coroutines.channels.Channel<InferenceResult>(kotlinx.coroutines.channels.Channel.UNLIMITED).also { channel ->
+                    conv.sendMessageAsync(contents, object : MessageCallback {
+                        override fun onMessage(message: Message) {
+                            val thought = message.channels["thought"]
+                            channel.trySend(InferenceResult(partialText = message.toString(), isDone = false, partialThinking = thought))
+                        }
+                        override fun onDone() {
+                            channel.trySend(InferenceResult(partialText = "", isDone = true))
+                            channel.close()
+                        }
+                        override fun onError(throwable: Throwable) {
+                            channel.close(throwable)
+                        }
+                    }, mapOf("enable_thinking" to "true"))
+                    
+                    for (result in channel) {
+                        emit(result)
+                    }
                 }
             } catch (e: Exception) {
-                emit("\n[Audio processing failed: ${e.message}. The active model might not support audio input.]")
+                emit(InferenceResult("\n[Audio processing failed: ${e.message}. The active model might not support audio input.]", true))
             }
         }
     }.flowOn(Dispatchers.IO)
 
     suspend fun generateOnce(prompt: String): String = withContext(Dispatchers.IO) {
-        ConsoleLogger.d(TAG, "Entering generateOnce mutex lock")
         mutex.withLock {
-            ConsoleLogger.d(TAG, "Acquired mutex lock. Engine check...")
             val eng = engine ?: throw IllegalStateException("Engine not initialized")
             var tempConv: Conversation? = null
             try {
-                ConsoleLogger.d(TAG, "Creating temp conversation for generateOnce...")
                 tempConv = eng.createConversation(ConversationConfig())
-                ConsoleLogger.d(TAG, "Content pushing...")
                 val sb = StringBuilder()
                 val textContent = Contents.of(listOf(Content.Text(prompt)))
-                tempConv.sendMessageAsync(textContent).collect { message ->
-                    sb.append(message.toString())
+                
+                kotlinx.coroutines.channels.Channel<String>(kotlinx.coroutines.channels.Channel.UNLIMITED).also { channel ->
+                    tempConv.sendMessageAsync(textContent, object : MessageCallback {
+                        override fun onMessage(message: Message) {
+                            channel.trySend(message.toString())
+                        }
+                        override fun onDone() {
+                            channel.close()
+                        }
+                        override fun onError(throwable: Throwable) {
+                            channel.close(throwable)
+                        }
+                    })
+                    for (token in channel) {
+                        sb.append(token)
+                    }
                 }
-                ConsoleLogger.d(TAG, "generateOnce successfully collected ${sb.length} chars.")
                 sb.toString()
             } finally {
                 try {
-                    ConsoleLogger.d(TAG, "Closing temp conversation.")
                     tempConv?.close()
                 } catch (e: Exception) {
                     ConsoleLogger.e(TAG, "Error closing temp conversation", e)
@@ -205,10 +281,18 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
         mutex.withLock {
             try {
                 conversation?.close()
-                val systemInstruction = memoryStore.buildSystemPrompt()
+                var systemInstruction = memoryStore.buildSystemPrompt()
+                
+                val samplerConfig = SamplerConfig(
+                    topK = userPrefs.getTopK(),
+                    topP = userPrefs.getTopP().toDouble(),
+                    temperature = userPrefs.getTemperature().toDouble()
+                )
+
                 conversation = engine?.createConversation(
                     ConversationConfig(
-                        systemInstruction = Contents.of(listOf(Content.Text(systemInstruction)))
+                        systemInstruction = Contents.of(listOf(Content.Text(systemInstruction))),
+                        samplerConfig = samplerConfig
                     )
                 )
             } catch (e: Exception) {

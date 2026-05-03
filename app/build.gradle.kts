@@ -78,7 +78,7 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.7.7")
 
     // LiteRT LM API
-    implementation("com.google.ai.edge.litertlm:litertlm-android:0.9.0-alpha05")
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.10.0")
 
 
     // RichText Markdown Rendering (For Smooth Scrolling)

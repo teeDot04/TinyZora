@@ -41,7 +41,8 @@ import java.io.File
 fun SettingsScreen(
     chatHistoryFile: File,
     onBack: () -> Unit,
-    onOpenMemory: () -> Unit
+    onOpenMemory: () -> Unit,
+    onOpenAIConfig: () -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -143,6 +144,17 @@ fun SettingsScreen(
                         },
                         colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
                         modifier = Modifier.clickable { onOpenMemory() }
+                    )
+                    Divider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+
+                    ListItem(
+                        headlineContent = { Text("AI Configuration") },
+                        supportingContent = { Text("Manage models, temperature, and inference settings") },
+                        leadingContent = {
+                            Icon(Icons.Default.Create, contentDescription = "AI Config")
+                        },
+                        colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
+                        modifier = Modifier.clickable { onOpenAIConfig() }
                     )
                     Divider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
 

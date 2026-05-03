@@ -155,12 +155,19 @@ class MainActivity : ComponentActivity() {
                         SettingsScreen(
                             chatHistoryFile = chatRepo.getChatHistoryFile(),
                             onBack = { navController.popBackStack() },
-                            onOpenMemory = { navController.navigate("/memory") }
+                            onOpenMemory = { navController.navigate("/memory") },
+                            onOpenAIConfig = { navController.navigate("/ai_config") }
                         )
                     }
                     
                     composable("/memory") {
                         com.telo.tinyzora.ui.memory.MemoryScreen(
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
+
+                    composable("/ai_config") {
+                        com.telo.tinyzora.ui.settings.ModelManagerScreen(
                             onBack = { navController.popBackStack() }
                         )
                     }
