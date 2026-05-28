@@ -36,7 +36,7 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
     private val userPrefs = com.telo.tinyzora.core.security.UserPreferences(context)
 
     // Conversation history — replaces LiteRT's Conversation object
-    private val history = mutableListOf<JSONObject>()
+    private val history = JSONArray()
     private var systemPrompt: String = ""
     private var isInitialized = false
 
@@ -125,7 +125,7 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
 
     fun sendMessage(text: String): Flow<InferenceResult> = flow {
         mutex.withLock {
-            history.add(userMessage(text))
+            history.put(:userMessage(text))
 
             val payload = buildPayload(history, stream = true)
             val results = mutableListOf<InferenceResult>()
@@ -139,7 +139,7 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
             val fullText = results
                 .filter { !it.isDone }
                 .joinToString("") { it.partialText ?: "" }
-            history.add(assistantMessage(fullText))
+            history.put(:assistantMessage(fullText))
 
             results.forEach { emit(it) }
         }
@@ -170,7 +170,7 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
                 put("role", "user")
                 put("content", content)
             }
-            history.add(msg)
+            history.put(:msg)
 
             val payload = buildPayload(history, stream = true)
             val results = mutableListOf<InferenceResult>()

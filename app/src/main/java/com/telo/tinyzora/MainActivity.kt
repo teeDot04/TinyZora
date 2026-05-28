@@ -187,7 +187,7 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
               com.telo.tinyzora.core.inference.LlamaServerService.stop(this)
                       super.onDestroy()
-                          }
+                          
     }
 
     private fun handleIntent(intent: Intent?) {
