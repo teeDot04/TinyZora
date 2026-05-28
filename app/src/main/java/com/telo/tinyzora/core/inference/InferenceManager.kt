@@ -2,14 +2,14 @@ package com.telo.tinyzora.core.inference
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.util.Log
+import android.util.Base64
 import com.telo.tinyzora.util.ConsoleLogger
-import com.google.ai.edge.litertlm.*
 import com.telo.tinyzora.core.memory.MemoryStore
 import com.telo.tinyzora.core.memory.MemoryConsolidator
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.io.ByteArrayOutputStream
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import kotlinx.coroutines.Dispatchers
@@ -19,297 +19,386 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import java.io.ByteArrayOutputStream
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.util.concurrent.TimeUnit
 
 class InferenceManager(private val context: Context, private val memoryStore: MemoryStore) {
+
     private val TAG = "InferenceManager"
-    private var engine: Engine? = null
-    private var conversation: Conversation? = null
     private val mutex = Mutex()
     private val userPrefs = com.telo.tinyzora.core.security.UserPreferences(context)
-    private var activeMode: String = "text"
+
+    // Conversation history — replaces LiteRT's Conversation object
+    private val history = mutableListOf<JSONObject>()
+    private var systemPrompt: String = ""
+    private var isInitialized = false
+
+    // OkHttp client — long timeouts for slow on-device inference
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(120, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .build()
+
+    private val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
+
+    // Server URL — falls back to localhost if not set in prefs
+    private val serverUrl: String
+        get() = userPrefs.getServerUrl().ifBlank { "http://127.0.0.1:8080" }
+
+    // ── Initialise ────────────────────────────────────────────────────────────
 
     suspend fun initialise(chatContext: String? = null): Boolean = withContext(Dispatchers.IO) {
         try {
-            val visionB = if (activeMode == "image") Backend.GPU() else null
-            val audioB = if (activeMode == "audio") Backend.CPU() else null
-
-            val modelPath = userPrefs.getModelPath()
-            val maxTokens = userPrefs.getMaxTokens()
-
-            val config = EngineConfig(
-                modelPath = modelPath,
-                backend = Backend.CPU(),
-                visionBackend = visionB,
-                audioBackend = audioB,
-                maxNumTokens = maxTokens,
-                cacheDir = context.cacheDir.absolutePath
-            )
-            engine = Engine(config)
-            engine?.initialize()
-
-            // Check for pending transcript for memory consolidation
+            // Process pending memory transcript (same logic as before)
             val pendingFile = File(context.filesDir, "pending_transcript.json")
             if (pendingFile.exists()) {
                 try {
                     val transcriptJson = pendingFile.readText()
                     val jsonParser = Json { ignoreUnknownKeys = true }
-                    val transcript: List<Pair<String, String>> = jsonParser.decodeFromString(transcriptJson)
+                    val transcript: List<Pair<String, String>> =
+                        jsonParser.decodeFromString(transcriptJson)
 
                     val fileTime = ZonedDateTime.ofInstant(
-                        java.time.Instant.ofEpochMilli(pendingFile.lastModified()), 
+                        java.time.Instant.ofEpochMilli(pendingFile.lastModified()),
                         ZoneId.of("Africa/Nairobi")
                     )
                     val consolidator = MemoryConsolidator(memoryStore, fileTime)
-                    
-                    // We run this using the same engine instance right when it turns on
                     consolidator.consolidate(transcript, this@InferenceManager::generateOnce)
                 } catch (e: Exception) {
                     ConsoleLogger.e(TAG, "Failed to process pending transcript: ${e.message}")
                 } finally {
-                    pendingFile.delete() // Guarantee we never get stuck in a bootloop
+                    pendingFile.delete()
                 }
             }
 
-            var systemInstruction = memoryStore.buildSystemPrompt()
-            if (!chatContext.isNullOrBlank()) {
-                systemInstruction += "\n\n=== RECENT CONVERSATION CONTEXT ===\n$chatContext\n==================================="
-            }
-            
-            val samplerConfig = SamplerConfig(
-                topK = userPrefs.getTopK(),
-                topP = userPrefs.getTopP().toDouble(),
-                temperature = userPrefs.getTemperature().toDouble()
-            )
+            rebuildHistory(chatContext)
 
-            conversation = engine?.createConversation(
-                ConversationConfig(
-                    systemInstruction = Contents.of(listOf(Content.Text(systemInstruction))),
-                    samplerConfig = samplerConfig
-                )
-            )
-            
-            // Re-sync all AlarmManager intents against the latest MemoryStore JSON
-            com.telo.tinyzora.core.notifications.ReminderScheduler.scheduleAllReminders(context, memoryStore)
-            
+            // Re-sync reminder alarms
+            com.telo.tinyzora.core.notifications.ReminderScheduler
+                .scheduleAllReminders(context, memoryStore)
+
+            isInitialized = true
+            ConsoleLogger.d(TAG, "InferenceManager initialized → $serverUrl")
             true
         } catch (e: Exception) {
-            ConsoleLogger.e(TAG, "Failed to initialize engine. Reason: ${e.message}", e)
-            e.printStackTrace()
+            ConsoleLogger.e(TAG, "Failed to initialize: ${e.message}", e)
             false
         }
     }
 
+    // Mode switching is a no-op for HTTP backend — no backend to swap
+    // Kept to preserve ChatViewModel call sites
     suspend fun ensureModeIs(mode: String, chatContext: String? = null) {
-        if (activeMode != mode) {
-            ConsoleLogger.d(TAG, "Hot-Swapping Backend: $activeMode -> $mode")
-            activeMode = mode
-            try {
-                conversation?.close()
-                engine?.close()
-            } catch (e: Exception) {
-                ConsoleLogger.i(TAG, "Error closing old engine: ${e.message}")
-            }
-            conversation = null
-            engine = null
-            initialise(chatContext)
-        }
+        ConsoleLogger.d(TAG, "ensureModeIs($mode) — HTTP backend, no swap needed")
+        if (!isInitialized) initialise(chatContext)
     }
+
+    // ── Conversation reset ────────────────────────────────────────────────────
 
     suspend fun resetConversation(chatContext: String? = null) {
         mutex.withLock {
-            try {
-                conversation?.close()
-                conversation = null
-                
-                var systemInstruction = memoryStore.buildSystemPrompt()
-                if (!chatContext.isNullOrBlank()) {
-                    systemInstruction += "\n\n=== RECENT CONVERSATION CONTEXT ===\n$chatContext\n==================================="
-                }
-                
-                val samplerConfig = SamplerConfig(
-                    topK = userPrefs.getTopK(),
-                    topP = userPrefs.getTopP().toDouble(),
-                    temperature = userPrefs.getTemperature().toDouble()
-                )
-
-                conversation = engine?.createConversation(
-                    ConversationConfig(
-                        systemInstruction = Contents.of(listOf(Content.Text(systemInstruction))),
-                        samplerConfig = samplerConfig
-                    )
-                )
-                ConsoleLogger.d(TAG, "Conversation context wiped and rebuilt.")
-            } catch (e: Exception) {
-                ConsoleLogger.e(TAG, "Failed to reset conversation: ${e.message}")
-            }
+            rebuildHistory(chatContext)
+            ConsoleLogger.d(TAG, "Conversation reset.")
         }
     }
 
+    // Overload without parameters — keeps MemoryConsolidator call site intact
+    suspend fun resetConversation() = resetConversation(null)
+
+    private fun rebuildHistory(chatContext: String? = null) {
+        systemPrompt = memoryStore.buildSystemPrompt()
+        if (!chatContext.isNullOrBlank()) {
+            systemPrompt += "\n\n=== RECENT CONVERSATION CONTEXT ===\n$chatContext\n==================================="
+        }
+        history.clear()
+    }
+
+    // ── Send Message (text) ───────────────────────────────────────────────────
+
     fun sendMessage(text: String): Flow<InferenceResult> = flow {
         mutex.withLock {
-            val conv = conversation ?: throw IllegalStateException("Conversation not initialized")
-            val contents = Contents.of(listOf(Content.Text(text)))
-            
-            kotlinx.coroutines.channels.Channel<InferenceResult>(kotlinx.coroutines.channels.Channel.UNLIMITED).also { channel ->
-                conv.sendMessageAsync(contents, object : MessageCallback {
-                    override fun onMessage(message: Message) {
-                        val thought = message.channels["thought"]
-                        channel.trySend(InferenceResult(partialText = message.toString(), isDone = false, partialThinking = thought))
-                    }
-                    override fun onDone() {
-                        channel.trySend(InferenceResult(partialText = "", isDone = true))
-                        channel.close()
-                    }
-                    override fun onError(throwable: Throwable) {
-                        channel.close(throwable)
-                    }
-                }, mapOf("enable_thinking" to "true"))
-                
-                for (result in channel) {
-                    emit(result)
-                }
+            history.add(userMessage(text))
+
+            val payload = buildPayload(history, stream = true)
+            val results = mutableListOf<InferenceResult>()
+
+            streamRequest(payload) { result ->
+                results.add(result)
+                // emit inside mutex lock via channel
             }
+
+            // Collect assistant response for history
+            val fullText = results
+                .filter { !it.isDone }
+                .joinToString("") { it.partialText ?: "" }
+            history.add(assistantMessage(fullText))
+
+            results.forEach { emit(it) }
         }
     }.flowOn(Dispatchers.IO)
 
+    // ── Send Message (image) ──────────────────────────────────────────────────
+
     fun sendMessageWithImage(text: String, bitmap: Bitmap): Flow<InferenceResult> = flow {
         mutex.withLock {
-            val conv = conversation ?: throw IllegalStateException("Conversation not initialized")
-            
             val stream = ByteArrayOutputStream()
-            bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
-            val byteArray = stream.toByteArray()
-            
-            val contents = Contents.of(listOf(Content.ImageBytes(byteArray), Content.Text(text)))
-            
-            kotlinx.coroutines.channels.Channel<InferenceResult>(kotlinx.coroutines.channels.Channel.UNLIMITED).also { channel ->
-                conv.sendMessageAsync(contents, object : MessageCallback {
-                    override fun onMessage(message: Message) {
-                        val thought = message.channels["thought"]
-                        channel.trySend(InferenceResult(partialText = message.toString(), isDone = false, partialThinking = thought))
-                    }
-                    override fun onDone() {
-                        channel.trySend(InferenceResult(partialText = "", isDone = true))
-                        channel.close()
-                    }
-                    override fun onError(throwable: Throwable) {
-                        channel.close(throwable)
-                    }
-                }, mapOf("enable_thinking" to "true"))
-                
-                for (result in channel) {
-                    emit(result)
-                }
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 85, stream)
+            val b64 = Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP)
+
+            // Vision message — requires a multimodal model (e.g. Qwen2-VL)
+            val content = JSONArray().apply {
+                put(JSONObject().apply {
+                    put("type", "image_url")
+                    put("image_url", JSONObject().apply {
+                        put("url", "data:image/jpeg;base64,$b64")
+                    })
+                })
+                put(JSONObject().apply {
+                    put("type", "text")
+                    put("text", text)
+                })
             }
+            val msg = JSONObject().apply {
+                put("role", "user")
+                put("content", content)
+            }
+            history.add(msg)
+
+            val payload = buildPayload(history, stream = true)
+            val results = mutableListOf<InferenceResult>()
+            streamRequest(payload) { results.add(it) }
+
+            val fullText = results.filter { !it.isDone }
+                .joinToString("") { it.partialText ?: "" }
+            history.add(assistantMessage(fullText))
+
+            results.forEach { emit(it) }
         }
     }.flowOn(Dispatchers.IO)
-    
-    // Kept audio capability active to preserve established multimodal logic implicitly requested yesterday
+
+    // ── Send Message (audio) ──────────────────────────────────────────────────
+
     fun sendMessageWithAudio(text: String, audioBytes: ByteArray): Flow<InferenceResult> = flow {
         mutex.withLock {
-            val conv = conversation ?: throw IllegalStateException("Conversation not initialized")
             if (audioBytes.isEmpty()) {
                 emit(InferenceResult("Error: Received empty audio buffer.", true))
                 return@withLock
             }
-            try {
-                val contents = Contents.of(listOf(Content.AudioBytes(audioBytes), Content.Text(text)))
-                
-                kotlinx.coroutines.channels.Channel<InferenceResult>(kotlinx.coroutines.channels.Channel.UNLIMITED).also { channel ->
-                    conv.sendMessageAsync(contents, object : MessageCallback {
-                        override fun onMessage(message: Message) {
-                            val thought = message.channels["thought"]
-                            channel.trySend(InferenceResult(partialText = message.toString(), isDone = false, partialThinking = thought))
-                        }
-                        override fun onDone() {
-                            channel.trySend(InferenceResult(partialText = "", isDone = true))
-                            channel.close()
-                        }
-                        override fun onError(throwable: Throwable) {
-                            channel.close(throwable)
-                        }
-                    }, mapOf("enable_thinking" to "true"))
-                    
-                    for (result in channel) {
-                        emit(result)
-                    }
-                }
-            } catch (e: Exception) {
-                emit(InferenceResult("\n[Audio processing failed: ${e.message}. The active model might not support audio input.]", true))
-            }
+            // Audio not supported by current llama.cpp HTTP backend
+            // Fall back to text-only with transcription note
+            val fallbackText = if (text.isNotBlank()) text
+            else "[Audio received but transcription not supported by current model]"
+
+            history.add(userMessage(fallbackText))
+            val payload = buildPayload(history, stream = true)
+            val results = mutableListOf<InferenceResult>()
+            streamRequest(payload) { results.add(it) }
+
+            val fullText = results.filter { !it.isDone }
+                .joinToString("") { it.partialText ?: "" }
+            history.add(assistantMessage(fullText))
+
+            results.forEach { emit(it) }
         }
     }.flowOn(Dispatchers.IO)
 
+    // ── generateOnce — used by MemoryConsolidator ─────────────────────────────
+
     suspend fun generateOnce(prompt: String): String = withContext(Dispatchers.IO) {
         mutex.withLock {
-            val eng = engine ?: throw IllegalStateException("Engine not initialized")
-            var tempConv: Conversation? = null
+            val messages = JSONArray().apply {
+                put(JSONObject().apply {
+                    put("role", "user")
+                    put("content", prompt)
+                })
+            }
+            val payload = buildPayload(messages, stream = false)
+
             try {
-                tempConv = eng.createConversation(ConversationConfig())
-                val sb = StringBuilder()
-                val textContent = Contents.of(listOf(Content.Text(prompt)))
-                
-                kotlinx.coroutines.channels.Channel<String>(kotlinx.coroutines.channels.Channel.UNLIMITED).also { channel ->
-                    tempConv.sendMessageAsync(textContent, object : MessageCallback {
-                        override fun onMessage(message: Message) {
-                            channel.trySend(message.toString())
-                        }
-                        override fun onDone() {
-                            channel.close()
-                        }
-                        override fun onError(throwable: Throwable) {
-                            channel.close(throwable)
-                        }
-                    })
-                    for (token in channel) {
-                        sb.append(token)
+                val request = Request.Builder()
+                    .url("$serverUrl/v1/chat/completions")
+                    .post(payload.toString().toRequestBody(JSON_MEDIA))
+                    .build()
+
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        ConsoleLogger.e(TAG, "generateOnce failed: ${response.code}")
+                        return@withContext ""
                     }
+                    val body = response.body?.string() ?: return@withContext ""
+                    JSONObject(body)
+                        .getJSONArray("choices")
+                        .getJSONObject(0)
+                        .getJSONObject("message")
+                        .getString("content")
                 }
-                sb.toString()
-            } finally {
-                try {
-                    tempConv?.close()
-                } catch (e: Exception) {
-                    ConsoleLogger.e(TAG, "Error closing temp conversation", e)
-                }
-            }
-        }
-    }
-
-    suspend fun resetConversation() = withContext(Dispatchers.IO) {
-        mutex.withLock {
-            try {
-                conversation?.close()
-                var systemInstruction = memoryStore.buildSystemPrompt()
-                
-                val samplerConfig = SamplerConfig(
-                    topK = userPrefs.getTopK(),
-                    topP = userPrefs.getTopP().toDouble(),
-                    temperature = userPrefs.getTemperature().toDouble()
-                )
-
-                conversation = engine?.createConversation(
-                    ConversationConfig(
-                        systemInstruction = Contents.of(listOf(Content.Text(systemInstruction))),
-                        samplerConfig = samplerConfig
-                    )
-                )
             } catch (e: Exception) {
-                ConsoleLogger.e(TAG, "Error resetting conversation", e)
+                ConsoleLogger.e(TAG, "generateOnce error: ${e.message}")
+                ""
             }
         }
     }
+
+    // ── Close ─────────────────────────────────────────────────────────────────
 
     fun close() {
+        history.clear()
+        isInitialized = false
+        ConsoleLogger.d(TAG, "InferenceManager closed.")
+    }
+
+    // ── Streaming ─────────────────────────────────────────────────────────────
+
+    /**
+     * Executes a streaming SSE request and calls [onResult] for each token.
+     * Parses Qwen3 <think>...</think> blocks into partialThinking field.
+     */
+    private fun streamRequest(
+        payload: JSONObject,
+        onResult: (InferenceResult) -> Unit
+    ) {
+        val request = Request.Builder()
+            .url("$serverUrl/v1/chat/completions")
+            .post(payload.toString().toRequestBody(JSON_MEDIA))
+            .build()
+
         try {
-            conversation?.close()
-            engine?.close()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    onResult(InferenceResult(
+                        partialText = "\n[Server error: ${response.code}]",
+                        isDone = true
+                    ))
+                    return
+                }
+
+                val reader = BufferedReader(InputStreamReader(response.body!!.byteStream()))
+                var inThink = false
+                val thinkBuffer = StringBuilder()
+
+                reader.forEachLine { line ->
+                    if (!line.startsWith("data: ")) return@forEachLine
+                    val data = line.removePrefix("data: ").trim()
+                    if (data == "[DONE]") {
+                        onResult(InferenceResult(partialText = "", isDone = true))
+                        return@forEachLine
+                    }
+
+                    try {
+                        val chunk = JSONObject(data)
+                            .getJSONArray("choices")
+                            .getJSONObject(0)
+                            .getJSONObject("delta")
+                            .optString("content", "")
+
+                        if (chunk.isEmpty()) return@forEachLine
+
+                        // Parse think blocks inline
+                        var remaining = chunk
+                        while (remaining.isNotEmpty()) {
+                            if (!inThink) {
+                                val thinkStart = remaining.indexOf("<think>")
+                                if (thinkStart == -1) {
+                                    // Pure response text
+                                    onResult(InferenceResult(
+                                        partialText = remaining,
+                                        isDone = false,
+                                        partialThinking = null
+                                    ))
+                                    remaining = ""
+                                } else {
+                                    // Flush text before <think>
+                                    if (thinkStart > 0) {
+                                        onResult(InferenceResult(
+                                            partialText = remaining.substring(0, thinkStart),
+                                            isDone = false
+                                        ))
+                                    }
+                                    remaining = remaining.substring(thinkStart + 7)
+                                    inThink = true
+                                }
+                            } else {
+                                val thinkEnd = remaining.indexOf("</think>")
+                                if (thinkEnd == -1) {
+                                    // Still inside think block
+                                    thinkBuffer.append(remaining)
+                                    onResult(InferenceResult(
+                                        partialText = "",
+                                        isDone = false,
+                                        partialThinking = remaining
+                                    ))
+                                    remaining = ""
+                                } else {
+                                    // Close think block
+                                    val thinkContent = remaining.substring(0, thinkEnd)
+                                    if (thinkContent.isNotEmpty()) {
+                                        onResult(InferenceResult(
+                                            partialText = "",
+                                            isDone = false,
+                                            partialThinking = thinkContent
+                                        ))
+                                    }
+                                    remaining = remaining.substring(thinkEnd + 8)
+                                    inThink = false
+                                    thinkBuffer.clear()
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        ConsoleLogger.e(TAG, "Chunk parse error: ${e.message}")
+                    }
+                }
+            }
         } catch (e: Exception) {
-            ConsoleLogger.e(TAG, "Error closing engine/conversation", e)
-        } finally {
-            conversation = null
-            engine = null
+            ConsoleLogger.e(TAG, "Stream request failed: ${e.message}")
+            onResult(InferenceResult(
+                partialText = "\n[Connection failed — is llama-server running?]",
+                isDone = true
+            ))
         }
+    }
+
+    // ── Payload builder ───────────────────────────────────────────────────────
+
+    private fun buildPayload(messages: JSONArray, stream: Boolean): JSONObject {
+        // Prepend system prompt to every request
+        val fullMessages = JSONArray().apply {
+            put(JSONObject().apply {
+                put("role", "system")
+                put("content", systemPrompt)
+            })
+            for (i in 0 until messages.length()) {
+                put(messages.getJSONObject(i))
+            }
+        }
+
+        return JSONObject().apply {
+            put("model", "local")
+            put("messages", fullMessages)
+            put("max_tokens", userPrefs.getMaxTokens())
+            put("temperature", userPrefs.getTemperature().toDouble())
+            put("top_p", userPrefs.getTopP().toDouble())
+            put("stream", stream)
+        }
+    }
+
+    // ── Message helpers ───────────────────────────────────────────────────────
+
+    private fun userMessage(text: String) = JSONObject().apply {
+        put("role", "user")
+        put("content", text)
+    }
+
+    private fun assistantMessage(text: String) = JSONObject().apply {
+        put("role", "assistant")
+        put("content", text)
     }
 }

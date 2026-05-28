@@ -65,6 +65,7 @@ class MainActivity : ComponentActivity() {
         NightWorkerScheduler.scheduleNightWorker(this)
         askNotificationPermission()
         com.telo.tinyzora.util.ConsoleLogger.init()
+        com.telo.tinyzora.core.inference.LlamaServerService.start(this)
 
         setContent {
             TinyZoraTheme {
@@ -182,6 +183,11 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleIntent(intent)
+    }
+    override fun onDestroy() {
+              com.telo.tinyzora.core.inference.LlamaServerService.stop(this)
+                      super.onDestroy()
+                          }
     }
 
     private fun handleIntent(intent: Intent?) {

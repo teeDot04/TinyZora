@@ -78,9 +78,8 @@ dependencies {
     // Navigation
     implementation("androidx.navigation:navigation-compose:2.7.7")
 
-    // LiteRT LM API
-    implementation("com.google.ai.edge.litertlm:litertlm-android:0.10.0")
-
+    // LLAMA LM API
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     // RichText Markdown Rendering (For Smooth Scrolling)
     implementation("com.halilibo.compose-richtext:richtext-commonmark:1.0.0-alpha02")
