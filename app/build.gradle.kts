@@ -12,7 +12,7 @@ android {
 
     defaultConfig {
         applicationId = "com.telo.tinyzora"
-        minSdk = 26
+        minSdk = 28
         targetSdk = 34
         versionCode = 1
         versionName = "2.0.0"
