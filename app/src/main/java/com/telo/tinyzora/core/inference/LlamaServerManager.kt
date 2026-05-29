@@ -1,7 +1,6 @@
 package com.telo.tinyzora.core.inference
 
 import android.content.Context
-import android.system.Os
 import com.telo.tinyzora.util.ConsoleLogger
 import com.telo.tinyzora.core.security.UserPreferences
 import kotlinx.coroutines.Dispatchers
@@ -76,7 +75,7 @@ object LlamaServerManager {
                 outFile.outputStream().use { output -> input.copyTo(output) }
             }
             if (!filename.endsWith(".so")) {
-                Os.chmod(outFile.absolutePath, 0b111_101_101)
+                outFile.setExecutable(true, false)
             }
         }
 
@@ -108,6 +107,8 @@ object LlamaServerManager {
             "--host", "127.0.0.1",
             "--no-mmap"
         )
+
+        Runtime.getRuntime().exec(arrayOf("chmod", "755", serverBin.absolutePath)).waitFor()
 
         ConsoleLogger.d(TAG, "Launching: ${cmd.joinToString(" ")}")
 
