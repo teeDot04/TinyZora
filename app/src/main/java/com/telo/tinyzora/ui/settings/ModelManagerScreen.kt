@@ -122,6 +122,8 @@ fun ModelManagerScreen(
                     onSelect = {
                         currentModelPath = model.path
                         userPrefs.setModelPath(model.path)
+                        com.telo.tinyzora.core.inference.LlamaServerService.stop(context)
+                        com.telo.tinyzora.core.inference.LlamaServerService.start(context)
                     },
                     onDelete = {
                         val updated = models.filter { it.path != model.path }
