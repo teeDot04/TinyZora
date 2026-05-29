@@ -35,12 +35,10 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
     private val mutex = Mutex()
     private val userPrefs = com.telo.tinyzora.core.security.UserPreferences(context)
 
-    // Conversation history — replaces LiteRT's Conversation object
     private val history = mutableListOf<JSONObject>()
     private var systemPrompt: String = ""
     private var isInitialized = false
 
-    // OkHttp client — long timeouts for slow on-device inference
     private val client = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
@@ -49,15 +47,11 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
 
     private val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
 
-    // Server URL — falls back to localhost if not set in prefs
     private val serverUrl: String
         get() = userPrefs.getServerUrl().ifBlank { "http://127.0.0.1:8080" }
 
-    // ── Initialise ────────────────────────────────────────────────────────────
-
     suspend fun initialise(chatContext: String? = null): Boolean = withContext(Dispatchers.IO) {
         try {
-            // Process pending memory transcript (same logic as before)
             val pendingFile = File(context.filesDir, "pending_transcript.json")
             if (pendingFile.exists()) {
                 try {
@@ -65,7 +59,6 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
                     val jsonParser = Json { ignoreUnknownKeys = true }
                     val transcript: List<Pair<String, String>> =
                         jsonParser.decodeFromString(transcriptJson)
-
                     val fileTime = ZonedDateTime.ofInstant(
                         java.time.Instant.ofEpochMilli(pendingFile.lastModified()),
                         ZoneId.of("Africa/Nairobi")
@@ -80,13 +73,11 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
             }
 
             rebuildHistory(chatContext)
-
-            // Re-sync reminder alarms
             com.telo.tinyzora.core.notifications.ReminderScheduler
                 .scheduleAllReminders(context, memoryStore)
 
             isInitialized = true
-            ConsoleLogger.d(TAG, "InferenceManager initialized → $serverUrl")
+            ConsoleLogger.d(TAG, "InferenceManager initialized -> $serverUrl")
             true
         } catch (e: Exception) {
             ConsoleLogger.e(TAG, "Failed to initialize: ${e.message}", e)
@@ -94,14 +85,10 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
         }
     }
 
-    // Mode switching is a no-op for HTTP backend — no backend to swap
-    // Kept to preserve ChatViewModel call sites
     suspend fun ensureModeIs(mode: String, chatContext: String? = null) {
-        ConsoleLogger.d(TAG, "ensureModeIs($mode) — HTTP backend, no swap needed")
+        ConsoleLogger.d(TAG, "ensureModeIs($mode) - HTTP backend, no swap needed")
         if (!isInitialized) initialise(chatContext)
     }
-
-    // ── Conversation reset ────────────────────────────────────────────────────
 
     suspend fun resetConversation(chatContext: String? = null) {
         mutex.withLock {
@@ -110,7 +97,6 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
         }
     }
 
-    // Overload without parameters — keeps MemoryConsolidator call site intact
     suspend fun resetConversation() = resetConversation(null)
 
     private fun rebuildHistory(chatContext: String? = null) {
@@ -121,31 +107,16 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
         history.clear()
     }
 
-    // ── Send Message (text) ───────────────────────────────────────────────────
-
     fun sendMessage(text: String): Flow<InferenceResult> = flow {
         mutex.withLock {
-            history.put(:userMessage(text))
-
-            val payload = buildPayload(history, stream = true)
+            history.add(userMessage(text))
             val results = mutableListOf<InferenceResult>()
-
-            streamRequest(payload) { result ->
-                results.add(result)
-                // emit inside mutex lock via channel
-            }
-
-            // Collect assistant response for history
-            val fullText = results
-                .filter { !it.isDone }
-                .joinToString("") { it.partialText ?: "" }
-            history.put(:assistantMessage(fullText))
-
+            streamRequest(buildPayload(history, stream = true)) { results.add(it) }
+            val fullText = results.filter { !it.isDone }.joinToString("") { it.partialText ?: "" }
+            history.add(assistantMessage(fullText))
             results.forEach { emit(it) }
         }
     }.flowOn(Dispatchers.IO)
-
-    // ── Send Message (image) ──────────────────────────────────────────────────
 
     fun sendMessageWithImage(text: String, bitmap: Bitmap): Flow<InferenceResult> = flow {
         mutex.withLock {
@@ -153,7 +124,6 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
             bitmap.compress(Bitmap.CompressFormat.JPEG, 85, stream)
             val b64 = Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP)
 
-            // Vision message — requires a multimodal model (e.g. Qwen2-VL)
             val content = JSONArray().apply {
                 put(JSONObject().apply {
                     put("type", "image_url")
@@ -170,21 +140,15 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
                 put("role", "user")
                 put("content", content)
             }
-            history.put(:msg)
+            history.add(msg)
 
-            val payload = buildPayload(history, stream = true)
             val results = mutableListOf<InferenceResult>()
-            streamRequest(payload) { results.add(it) }
-
-            val fullText = results.filter { !it.isDone }
-                .joinToString("") { it.partialText ?: "" }
+            streamRequest(buildPayload(history, stream = true)) { results.add(it) }
+            val fullText = results.filter { !it.isDone }.joinToString("") { it.partialText ?: "" }
             history.add(assistantMessage(fullText))
-
             results.forEach { emit(it) }
         }
     }.flowOn(Dispatchers.IO)
-
-    // ── Send Message (audio) ──────────────────────────────────────────────────
 
     fun sendMessageWithAudio(text: String, audioBytes: ByteArray): Flow<InferenceResult> = flow {
         mutex.withLock {
@@ -192,47 +156,29 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
                 emit(InferenceResult("Error: Received empty audio buffer.", true))
                 return@withLock
             }
-            // Audio not supported by current llama.cpp HTTP backend
-            // Fall back to text-only with transcription note
-            val fallbackText = if (text.isNotBlank()) text
-            else "[Audio received but transcription not supported by current model]"
-
+            val fallbackText = text.ifBlank {
+                "[Audio received but transcription not supported by current model]"
+            }
             history.add(userMessage(fallbackText))
-            val payload = buildPayload(history, stream = true)
             val results = mutableListOf<InferenceResult>()
-            streamRequest(payload) { results.add(it) }
-
-            val fullText = results.filter { !it.isDone }
-                .joinToString("") { it.partialText ?: "" }
+            streamRequest(buildPayload(history, stream = true)) { results.add(it) }
+            val fullText = results.filter { !it.isDone }.joinToString("") { it.partialText ?: "" }
             history.add(assistantMessage(fullText))
-
             results.forEach { emit(it) }
         }
     }.flowOn(Dispatchers.IO)
 
-    // ── generateOnce — used by MemoryConsolidator ─────────────────────────────
-
     suspend fun generateOnce(prompt: String): String = withContext(Dispatchers.IO) {
         mutex.withLock {
-            val messages = JSONArray().apply {
-                put(JSONObject().apply {
-                    put("role", "user")
-                    put("content", prompt)
-                })
-            }
+            val messages = mutableListOf(userMessage(prompt))
             val payload = buildPayload(messages, stream = false)
-
             try {
                 val request = Request.Builder()
                     .url("$serverUrl/v1/chat/completions")
                     .post(payload.toString().toRequestBody(JSON_MEDIA))
                     .build()
-
                 client.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) {
-                        ConsoleLogger.e(TAG, "generateOnce failed: ${response.code}")
-                        return@withContext ""
-                    }
+                    if (!response.isSuccessful) return@withContext ""
                     val body = response.body?.string() ?: return@withContext ""
                     JSONObject(body)
                         .getJSONArray("choices")
@@ -247,24 +193,13 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
         }
     }
 
-    // ── Close ─────────────────────────────────────────────────────────────────
-
     fun close() {
         history.clear()
         isInitialized = false
         ConsoleLogger.d(TAG, "InferenceManager closed.")
     }
 
-    // ── Streaming ─────────────────────────────────────────────────────────────
-
-    /**
-     * Executes a streaming SSE request and calls [onResult] for each token.
-     * Parses Qwen3 <think>...</think> blocks into partialThinking field.
-     */
-    private fun streamRequest(
-        payload: JSONObject,
-        onResult: (InferenceResult) -> Unit
-    ) {
+    private fun streamRequest(payload: JSONObject, onResult: (InferenceResult) -> Unit) {
         val request = Request.Builder()
             .url("$serverUrl/v1/chat/completions")
             .post(payload.toString().toRequestBody(JSON_MEDIA))
@@ -273,25 +208,19 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
         try {
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
-                    onResult(InferenceResult(
-                        partialText = "\n[Server error: ${response.code}]",
-                        isDone = true
-                    ))
+                    onResult(InferenceResult("\n[Server error: ${response.code}]", true))
                     return
                 }
-
                 val reader = BufferedReader(InputStreamReader(response.body!!.byteStream()))
                 var inThink = false
-                val thinkBuffer = StringBuilder()
 
                 reader.forEachLine { line ->
                     if (!line.startsWith("data: ")) return@forEachLine
                     val data = line.removePrefix("data: ").trim()
                     if (data == "[DONE]") {
-                        onResult(InferenceResult(partialText = "", isDone = true))
+                        onResult(InferenceResult("", true))
                         return@forEachLine
                     }
-
                     try {
                         val chunk = JSONObject(data)
                             .getJSONArray("choices")
@@ -301,26 +230,16 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
 
                         if (chunk.isEmpty()) return@forEachLine
 
-                        // Parse think blocks inline
                         var remaining = chunk
                         while (remaining.isNotEmpty()) {
                             if (!inThink) {
                                 val thinkStart = remaining.indexOf("<think>")
                                 if (thinkStart == -1) {
-                                    // Pure response text
-                                    onResult(InferenceResult(
-                                        partialText = remaining,
-                                        isDone = false,
-                                        partialThinking = null
-                                    ))
+                                    onResult(InferenceResult(remaining, false, null))
                                     remaining = ""
                                 } else {
-                                    // Flush text before <think>
                                     if (thinkStart > 0) {
-                                        onResult(InferenceResult(
-                                            partialText = remaining.substring(0, thinkStart),
-                                            isDone = false
-                                        ))
+                                        onResult(InferenceResult(remaining.substring(0, thinkStart), false))
                                     }
                                     remaining = remaining.substring(thinkStart + 7)
                                     inThink = true
@@ -328,27 +247,15 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
                             } else {
                                 val thinkEnd = remaining.indexOf("</think>")
                                 if (thinkEnd == -1) {
-                                    // Still inside think block
-                                    thinkBuffer.append(remaining)
-                                    onResult(InferenceResult(
-                                        partialText = "",
-                                        isDone = false,
-                                        partialThinking = remaining
-                                    ))
+                                    onResult(InferenceResult("", false, remaining))
                                     remaining = ""
                                 } else {
-                                    // Close think block
                                     val thinkContent = remaining.substring(0, thinkEnd)
                                     if (thinkContent.isNotEmpty()) {
-                                        onResult(InferenceResult(
-                                            partialText = "",
-                                            isDone = false,
-                                            partialThinking = thinkContent
-                                        ))
+                                        onResult(InferenceResult("", false, thinkContent))
                                     }
                                     remaining = remaining.substring(thinkEnd + 8)
                                     inThink = false
-                                    thinkBuffer.clear()
                                 }
                             }
                         }
@@ -359,27 +266,20 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
             }
         } catch (e: Exception) {
             ConsoleLogger.e(TAG, "Stream request failed: ${e.message}")
-            onResult(InferenceResult(
-                partialText = "\n[Connection failed — is llama-server running?]",
-                isDone = true
-            ))
+            onResult(InferenceResult("\n[Connection failed - is llama-server running?]", true))
         }
     }
 
-    // ── Payload builder ───────────────────────────────────────────────────────
-
     private fun buildPayload(messages: List<JSONObject>, stream: Boolean): JSONObject {
-        // Prepend system prompt to every request
         val fullMessages = JSONArray().apply {
             put(JSONObject().apply {
                 put("role", "system")
                 put("content", systemPrompt)
             })
-            for (msg in messages) {}
+            for (msg in messages) {
                 put(msg)
             }
         }
-
         return JSONObject().apply {
             put("model", "local")
             put("messages", fullMessages)
@@ -389,8 +289,6 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
             put("stream", stream)
         }
     }
-
-    // ── Message helpers ───────────────────────────────────────────────────────
 
     private fun userMessage(text: String) = JSONObject().apply {
         put("role", "user")
