@@ -36,7 +36,7 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
     private val userPrefs = com.telo.tinyzora.core.security.UserPreferences(context)
 
     // Conversation history — replaces LiteRT's Conversation object
-    private val history = JSONArray()
+    private val history = mutableListOf<JSONObject>()
     private var systemPrompt: String = ""
     private var isInitialized = false
 
@@ -368,15 +368,15 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
 
     // ── Payload builder ───────────────────────────────────────────────────────
 
-    private fun buildPayload(messages: JSONArray, stream: Boolean): JSONObject {
+    private fun buildPayload(messages: List<JSONObject>, stream: Boolean): JSONObject {
         // Prepend system prompt to every request
         val fullMessages = JSONArray().apply {
             put(JSONObject().apply {
                 put("role", "system")
                 put("content", systemPrompt)
             })
-            for (i in 0 until messages.length()) {
-                put(messages.getJSONObject(i))
+            for (msg in messages) {}
+                put(msg)
             }
         }
 
