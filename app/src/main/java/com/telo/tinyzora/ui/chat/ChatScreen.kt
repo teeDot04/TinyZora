@@ -1022,7 +1022,6 @@ fun MessageBubble(
                                             letterSpacing = 0.5.sp
                                         ),
                                       )
-                                    )
                             }
                         }
 
