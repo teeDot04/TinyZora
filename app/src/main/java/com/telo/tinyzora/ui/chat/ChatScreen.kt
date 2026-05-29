@@ -1021,7 +1021,8 @@ fun MessageBubble(
                                             fontWeight = FontWeight.Bold,
                                             letterSpacing = 0.5.sp
                                         ),
-                                      )
+                                    )
+                                }
                             }
                         }
 
