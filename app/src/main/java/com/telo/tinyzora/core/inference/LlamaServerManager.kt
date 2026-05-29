@@ -81,7 +81,11 @@ object LlamaServerManager {
 
         versionFile.writeText(currentVersion)
         ConsoleLogger.d(TAG, "Extraction complete.")
-        return File(outDir, SERVER_BINARY)
+        val binary = File(outDir, SERVER_BINARY)
+        if (!binary.exists()) {
+            throw IllegalStateException("llama-server binary missing from assets/llama/ — cannot start server")
+        }
+        return binary
     }
 
     private fun launchProcess(
