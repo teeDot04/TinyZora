@@ -1,6 +1,7 @@
 package com.telo.tinyzora.core.inference
 
 import android.content.Context
+import android.system.Os
 import com.telo.tinyzora.util.ConsoleLogger
 import com.telo.tinyzora.core.security.UserPreferences
 import kotlinx.coroutines.Dispatchers
@@ -75,7 +76,7 @@ object LlamaServerManager {
                 outFile.outputStream().use { output -> input.copyTo(output) }
             }
             if (!filename.endsWith(".so")) {
-                outFile.setExecutable(true, true)
+                Os.chmod(outFile.absolutePath, 0b111_101_101)
             }
         }
 
