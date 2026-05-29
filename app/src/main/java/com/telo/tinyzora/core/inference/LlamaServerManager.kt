@@ -1,7 +1,6 @@
 package com.telo.tinyzora.core.inference
 
 import android.content.Context
-import android.util.Log
 import com.telo.tinyzora.util.ConsoleLogger
 import com.telo.tinyzora.core.security.UserPreferences
 import kotlinx.coroutines.Dispatchers
@@ -9,21 +8,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.io.File
 
-/**
- * Manages the lifecycle of the bundled llama-server process.
- *
- * Assets layout (place these in app/src/main/assets/llama/):
- *   llama-server
- *   libllama.so
- *   libllama-common.so
- *   libggml.so
- *   libggml-base.so
- *   libggml-cpu-android_armv8.0_1.so   ← runtime picks correct variant
- *   libggml-rpc.so
- *
- * On first run (or after app update), binaries are copied to
- * context.filesDir/llama/ and chmod +x applied.
- */
 object LlamaServerManager {
 
     private const val TAG = "LlamaServerManager"
@@ -36,8 +20,6 @@ object LlamaServerManager {
 
     val isRunning: Boolean
         get() = process?.isAlive == true
-
-    // ── Start ─────────────────────────────────────────────────────────────────
 
     suspend fun start(context: Context): Result<Unit> = withContext(Dispatchers.IO) {
         if (isRunning) return@withContext Result.success(Unit)
@@ -67,8 +49,6 @@ object LlamaServerManager {
         }
     }
 
-    // ── Stop ──────────────────────────────────────────────────────────────────
-
     fun stop() {
         process?.let {
             it.destroy()
@@ -77,19 +57,12 @@ object LlamaServerManager {
         process = null
     }
 
-    // ── Binary extraction ─────────────────────────────────────────────────────
-
-    /**
-     * Copies binaries from assets to app's private filesDir on first run or update.
-     * Returns the executable File for llama-server.
-     */
     private fun extractBinaries(context: Context): File {
         val outDir = File(context.filesDir, ASSETS_DIR).also { it.mkdirs() }
         val versionFile = File(outDir, ".version")
         val currentVersion = context.packageManager
             .getPackageInfo(context.packageName, 0).versionCode.toString()
 
-        // Skip extraction if already done for this version
         if (versionFile.exists() && versionFile.readText().trim() == currentVersion) {
             ConsoleLogger.d(TAG, "Binaries up to date, skipping extraction.")
             return File(outDir, SERVER_BINARY)
@@ -101,7 +74,6 @@ object LlamaServerManager {
             context.assets.open("$ASSETS_DIR/$filename").use { input ->
                 outFile.outputStream().use { output -> input.copyTo(output) }
             }
-            // Make executables runnable
             if (!filename.endsWith(".so")) {
                 outFile.setExecutable(true, true)
             }
@@ -111,8 +83,6 @@ object LlamaServerManager {
         ConsoleLogger.d(TAG, "Extraction complete.")
         return File(outDir, SERVER_BINARY)
     }
-
-    // ── Process launch ────────────────────────────────────────────────────────
 
     private fun launchProcess(
         context: Context,
@@ -139,11 +109,10 @@ object LlamaServerManager {
         process = ProcessBuilder(cmd)
             .apply {
                 environment()["LD_LIBRARY_PATH"] = libDir
-                redirectErrorStream(true)           // merge stderr into stdout
+                redirectErrorStream(true)
             }
             .start()
 
-        // Log server output in background — useful for debugging
         Thread {
             process?.inputStream?.bufferedReader()?.forEachLine { line ->
                 ConsoleLogger.d(TAG, "server: $line")
@@ -154,11 +123,6 @@ object LlamaServerManager {
         }
     }
 
-    // ── Health check ──────────────────────────────────────────────────────────
-
-    /**
-     * Polls /health until server is ready or timeout is reached.
-     */
     private suspend fun waitForHealth(serverUrl: String): Result<Unit> {
         val healthUrl = "$serverUrl/health"
         val deadline = System.currentTimeMillis() + STARTUP_TIMEOUT_MS
@@ -177,7 +141,6 @@ object LlamaServerManager {
                 }
                 connection.disconnect()
             } catch (_: Exception) {
-                // Not ready yet
             }
             delay(HEALTH_POLL_MS)
         }
@@ -185,8 +148,6 @@ object LlamaServerManager {
         stop()
         return Result.failure(IllegalStateException("llama-server failed to start within ${STARTUP_TIMEOUT_MS}ms"))
     }
-
-    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private fun extractPort(serverUrl: String): String {
         return try {
@@ -196,4 +157,3 @@ object LlamaServerManager {
         }
     }
 }
-

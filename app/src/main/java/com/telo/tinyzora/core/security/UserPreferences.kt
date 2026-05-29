@@ -21,8 +21,6 @@ class UserPreferences(context: Context) {
 
     private val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
 
-    // ── PIN ───────────────────────────────────────────────────────────────────
-
     private fun hashPin(pin: String): String {
         val bytes = java.security.MessageDigest.getInstance("SHA-256")
             .digest(pin.toByteArray())
@@ -37,17 +35,11 @@ class UserPreferences(context: Context) {
     }
     fun clearPin() = prefs.edit().remove(KEY_PIN_HASH).apply()
 
-    // ── Model path ────────────────────────────────────────────────────────────
-    // Default is empty — LlamaServerManager will refuse to start without a valid path,
-    // prompting the user to import a model first.
-
     fun getModelPath(): String =
         prefs.getString(KEY_MODEL_PATH, "") ?: ""
 
     fun setModelPath(path: String) =
         prefs.edit().putString(KEY_MODEL_PATH, path).apply()
-
-    // ── Inference settings ────────────────────────────────────────────────────
 
     fun getTemperature(): Float = prefs.getFloat(KEY_TEMPERATURE, 0.7f)
     fun setTemperature(v: Float) = prefs.edit().putFloat(KEY_TEMPERATURE, v).apply()
@@ -58,24 +50,17 @@ class UserPreferences(context: Context) {
     fun getTopP(): Float = prefs.getFloat(KEY_TOPP, 0.9f)
     fun setTopP(v: Float) = prefs.edit().putFloat(KEY_TOPP, v).apply()
 
-    // Max tokens raised to 8192 to match device capability
     fun getMaxTokens(): Int = prefs.getInt(KEY_MAX_TOKENS, 8192)
     fun setMaxTokens(v: Int) = prefs.edit().putInt(KEY_MAX_TOKENS, v).apply()
 
-    // ── llama-server settings ─────────────────────────────────────────────────
-
-    // URL the app uses to reach llama-server (localhost when bundled)
     fun getServerUrl(): String =
         prefs.getString(KEY_SERVER_URL, "http://127.0.0.1:8080") ?: "http://127.0.0.1:8080"
 
     fun setServerUrl(url: String) =
         prefs.edit().putString(KEY_SERVER_URL, url).apply()
 
-    // Context window passed to llama-server -c flag
     fun getCtxSize(): Int = prefs.getInt(KEY_CTX_SIZE, 8192)
     fun setCtxSize(v: Int) = prefs.edit().putInt(KEY_CTX_SIZE, v).apply()
-
-    // ── Imported models ───────────────────────────────────────────────────────
 
     fun getImportedModels(): List<com.telo.tinyzora.core.inference.ImportedModel> {
         val jsonStr = prefs.getString(KEY_IMPORTED_MODELS, "[]") ?: "[]"
