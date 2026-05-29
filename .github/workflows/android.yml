@@ -37,13 +37,13 @@ jobs:
           -DGGML_OPENMP=OFF \
           -DBUILD_SHARED_LIBS=ON
         cmake --build build-android -j$(nproc) --target llama-server
-        mkdir -p $GITHUB_WORKSPACE/app/src/main/assets/llama
+        mkdir -p $GITHUB_WORKSPACE/app/src/main/jniLibs/arm64-v8a
         find build-android -name "llama-server" -type f ! -name "*.cmake" \
-          -exec cp {} $GITHUB_WORKSPACE/app/src/main/assets/llama/ \;
+          -exec cp {} $GITHUB_WORKSPACE/app/src/main/jniLibs/arm64-v8a/libllama_server.so \;
         find build-android -name "*.so" \
-          -exec cp {} $GITHUB_WORKSPACE/app/src/main/assets/llama/ \;
-        echo "=== Bundled llama assets ==="
-        ls -lh $GITHUB_WORKSPACE/app/src/main/assets/llama/
+          -exec cp {} $GITHUB_WORKSPACE/app/src/main/jniLibs/arm64-v8a/ \;
+        echo "=== jniLibs ==="
+        ls -lh $GITHUB_WORKSPACE/app/src/main/jniLibs/arm64-v8a/
 
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
