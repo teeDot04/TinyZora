@@ -11,8 +11,7 @@ import java.io.File
 object LlamaServerManager {
 
     private const val TAG = "LlamaServerManager"
-    private const val ASSETS_DIR = "llama"
-    private const val SERVER_BINARY = "llama-server"
+    private const val SERVER_LIB_NAME = "libllama_server.so"
     private const val STARTUP_TIMEOUT_MS = 10_000L
     private const val HEALTH_POLL_MS = 500L
 
@@ -39,9 +38,17 @@ object LlamaServerManager {
             )
         }
 
+        val nativeDir = context.applicationInfo.nativeLibraryDir
+        val serverBin = File(nativeDir, SERVER_LIB_NAME)
+
+        if (!serverBin.exists()) {
+            return@withContext Result.failure(
+                IllegalStateException("llama-server binary not found at ${serverBin.absolutePath}")
+            )
+        }
+
         return@withContext try {
-            val serverBin = extractBinaries(context)
-            launchProcess(context, serverBin, modelPath, prefs)
+            launchProcess(nativeDir, serverBin, modelPath, prefs)
             waitForHealth(prefs.getServerUrl())
         } catch (e: Exception) {
             ConsoleLogger.e(TAG, "Failed to start llama-server: ${e.message}", e)
@@ -57,44 +64,12 @@ object LlamaServerManager {
         process = null
     }
 
-    private fun extractBinaries(context: Context): File {
-        val outDir = File(context.filesDir, ASSETS_DIR).also { it.mkdirs() }
-        val versionFile = File(outDir, ".version")
-        val currentVersion = context.packageManager
-            .getPackageInfo(context.packageName, 0).versionCode.toString()
-
-        if (versionFile.exists() && versionFile.readText().trim() == currentVersion) {
-            ConsoleLogger.d(TAG, "Binaries up to date, skipping extraction.")
-            return File(outDir, SERVER_BINARY)
-        }
-
-        ConsoleLogger.d(TAG, "Extracting llama binaries to $outDir")
-        context.assets.list(ASSETS_DIR)?.forEach { filename ->
-            val outFile = File(outDir, filename)
-            context.assets.open("$ASSETS_DIR/$filename").use { input ->
-                outFile.outputStream().use { output -> input.copyTo(output) }
-            }
-            if (!filename.endsWith(".so")) {
-                outFile.setExecutable(true, false)
-            }
-        }
-
-        versionFile.writeText(currentVersion)
-        ConsoleLogger.d(TAG, "Extraction complete.")
-        val binary = File(outDir, SERVER_BINARY)
-        if (!binary.exists()) {
-            throw IllegalStateException("llama-server binary missing from assets/llama/ — cannot start server")
-        }
-        return binary
-    }
-
     private fun launchProcess(
-        context: Context,
+        nativeDir: String,
         serverBin: File,
         modelPath: String,
         prefs: UserPreferences
     ) {
-        val libDir = File(context.filesDir, ASSETS_DIR).absolutePath
         val ctxSize = prefs.getCtxSize()
         val port = extractPort(prefs.getServerUrl())
 
@@ -108,13 +83,11 @@ object LlamaServerManager {
             "--no-mmap"
         )
 
-        Runtime.getRuntime().exec(arrayOf("chmod", "755", serverBin.absolutePath)).waitFor()
-
         ConsoleLogger.d(TAG, "Launching: ${cmd.joinToString(" ")}")
 
         process = ProcessBuilder(cmd)
             .apply {
-                environment()["LD_LIBRARY_PATH"] = libDir
+                environment()["LD_LIBRARY_PATH"] = nativeDir
                 redirectErrorStream(true)
             }
             .start()
