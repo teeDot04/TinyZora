@@ -26,13 +26,47 @@ jobs:
       run: |
         echo "y" | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager "ndk;27.0.12077973"
 
+    - name: Resolve llama.cpp commit
+      id: llama_commit
+      run: |
+        COMMIT=$(git ls-remote https://github.com/ggerganov/llama.cpp.git HEAD | cut -f1)
+        echo "sha=$COMMIT" >> $GITHUB_OUTPUT
+        echo "llama.cpp HEAD: $COMMIT"
+
+    - name: Cache llama.cpp source
+      id: cache_llama_src
+      uses: actions/cache@v4
+      with:
+        path: app/src/main/cpp/llama.cpp
+        key: llama-src-${{ steps.llama_commit.outputs.sha }}
+
     - name: Clone llama.cpp source
+      if: steps.cache_llama_src.outputs.cache-hit != 'true'
       run: |
         git clone https://github.com/ggerganov/llama.cpp.git \
           --depth 1 \
           app/src/main/cpp/llama.cpp
         echo "=== llama.cpp cloned ==="
         ls app/src/main/cpp/llama.cpp/
+
+    - name: Cache CMake build outputs
+      uses: actions/cache@v4
+      with:
+        path: app/.cxx
+        key: cxx-arm64-${{ steps.llama_commit.outputs.sha }}-${{ hashFiles('app/src/main/cpp/**') }}
+        restore-keys: |
+          cxx-arm64-${{ steps.llama_commit.outputs.sha }}-
+
+    - name: Cache Gradle build outputs
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+          app/build/intermediates
+        key: gradle-${{ hashFiles('**/*.gradle.kts', '**/gradle-wrapper.properties') }}
+        restore-keys: |
+          gradle-
 
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
