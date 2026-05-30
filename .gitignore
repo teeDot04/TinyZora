@@ -3,3 +3,8 @@
 
 # Ignore Gradle build output directory
 build
+
+# llama.cpp source (cloned during CI)
+app/src/main/cpp/llama.cpp/
+# Old jniLibs binaries
+app/src/main/jniLibs/

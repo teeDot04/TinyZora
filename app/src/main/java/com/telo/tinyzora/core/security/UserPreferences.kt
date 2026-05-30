@@ -15,7 +15,6 @@ class UserPreferences(context: Context) {
         private const val KEY_TOPK            = "inference_topk"
         private const val KEY_TOPP            = "inference_topp"
         private const val KEY_MAX_TOKENS      = "inference_max_tokens"
-        private const val KEY_SERVER_URL      = "llama_server_url"
         private const val KEY_CTX_SIZE        = "llama_ctx_size"
     }
 
@@ -53,13 +52,7 @@ class UserPreferences(context: Context) {
     fun getMaxTokens(): Int = prefs.getInt(KEY_MAX_TOKENS, 8192)
     fun setMaxTokens(v: Int) = prefs.edit().putInt(KEY_MAX_TOKENS, v).apply()
 
-    fun getServerUrl(): String =
-        prefs.getString(KEY_SERVER_URL, "http://127.0.0.1:8080") ?: "http://127.0.0.1:8080"
-
-    fun setServerUrl(url: String) =
-        prefs.edit().putString(KEY_SERVER_URL, url).apply()
-
-    fun getCtxSize(): Int = prefs.getInt(KEY_CTX_SIZE, 8192)
+    fun getCtxSize(): Int = prefs.getInt(KEY_CTX_SIZE, 4096)
     fun setCtxSize(v: Int) = prefs.edit().putInt(KEY_CTX_SIZE, v).apply()
 
     fun getImportedModels(): List<com.telo.tinyzora.core.inference.ImportedModel> {
