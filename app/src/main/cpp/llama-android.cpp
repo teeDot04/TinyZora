@@ -51,7 +51,7 @@ Java_com_telo_tinyzora_core_inference_LlamaAndroid_loadModel(
     cparams.n_threads        = (uint32_t)n_threads;
     cparams.n_threads_batch  = (uint32_t)n_threads;
 
-    g_ctx = llama_new_context_with_model(g_model, cparams);
+    g_ctx = llama_init_from_model(g_model, cparams);
     if (!g_ctx) {
         LOGE("Failed to create context");
         llama_model_free(g_model);
@@ -75,13 +75,15 @@ Java_com_telo_tinyzora_core_inference_LlamaAndroid_sendMessageNative(
     std::string text(raw);
     env->ReleaseStringUTFChars(prompt, raw);
 
-    int n_tokens = -llama_tokenize(g_model, text.c_str(), (int)text.size(),
+    const llama_vocab* vocab = llama_model_get_vocab(g_model);
+
+    int n_tokens = -llama_tokenize(vocab, text.c_str(), (int)text.size(),
                                    nullptr, 0, true, true);
     std::vector<llama_token> tokens((size_t)n_tokens);
-    llama_tokenize(g_model, text.c_str(), (int)text.size(),
+    llama_tokenize(vocab, text.c_str(), (int)text.size(),
                    tokens.data(), n_tokens, true, true);
 
-    llama_kv_cache_clear(g_ctx);
+    llama_kv_self_clear(g_ctx);
 
     llama_batch batch = llama_batch_init(n_tokens, 0, 1);
     batch.n_tokens = n_tokens;
@@ -116,10 +118,10 @@ Java_com_telo_tinyzora_core_inference_LlamaAndroid_sendMessageNative(
         llama_token token = llama_sampler_sample(sampler, g_ctx, -1);
         llama_sampler_accept(sampler, token);
 
-        if (llama_token_is_eog(g_model, token)) break;
+        if (llama_vocab_is_eog(vocab, token)) break;
 
         char buf[256];
-        int n = llama_token_to_piece(g_model, token, buf, sizeof(buf), 0, true);
+        int n = llama_token_to_piece(vocab, token, buf, sizeof(buf), 0, true);
         if (n < 0) break;
 
         jstring piece = env->NewStringUTF(std::string(buf, (size_t)n).c_str());
