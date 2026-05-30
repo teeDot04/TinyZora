@@ -37,14 +37,22 @@ fun ModelManagerScreen(
     val userPrefs = remember { UserPreferences(context) }
     var models by remember { mutableStateOf(userPrefs.getImportedModels()) }
     var currentModelPath by remember { mutableStateOf(userPrefs.getModelPath()) }
-    
+
     var showImportDialog by remember { mutableStateOf<Uri?>(null) }
-    
-    // Inference Settings
+
     var temperature by remember { mutableFloatStateOf(userPrefs.getTemperature()) }
     var topK by remember { mutableIntStateOf(userPrefs.getTopK()) }
     var topP by remember { mutableFloatStateOf(userPrefs.getTopP()) }
     var maxTokens by remember { mutableIntStateOf(userPrefs.getMaxTokens()) }
+
+    val snackbarHostState = remember { SnackbarHostState() }
+    var switchMessage by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(switchMessage) {
+        val msg = switchMessage ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(msg)
+        switchMessage = null
+    }
 
     val pickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
@@ -52,6 +60,7 @@ fun ModelManagerScreen(
     )
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("AI Configuration") },
@@ -122,6 +131,7 @@ fun ModelManagerScreen(
                     onSelect = {
                         currentModelPath = model.path
                         userPrefs.setModelPath(model.path)
+                        switchMessage = "Switching to ${model.name}… chat will be ready shortly."
                     },
                     onDelete = {
                         val updated = models.filter { it.path != model.path }
