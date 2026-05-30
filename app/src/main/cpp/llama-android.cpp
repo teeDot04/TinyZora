@@ -112,7 +112,6 @@ Java_com_telo_tinyzora_core_inference_LlamaAndroid_sendMessageNative(
     llama_tokenize(vocab, text.c_str(), (int)text.size(),
                    tokens.data(), n_tokens, true, true);
 
-    llama_kv_cache_seq_rm(g_ctx, -1, -1, -1);
 
     llama_batch batch = llama_batch_init(n_tokens, 0, 1);
     batch.n_tokens = n_tokens;

@@ -68,6 +68,8 @@ jobs:
         restore-keys: |
           gradle-
 
+    - name: Clone llama.cpp source
+          run: git clone --depth 1 https://github.com/ggml-org/llama.cpp.git app/src/main/cpp/llama.cpp
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
