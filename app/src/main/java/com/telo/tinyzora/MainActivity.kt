@@ -45,7 +45,6 @@ class MainActivity : ComponentActivity() {
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted: Boolean ->
-        // Handle if needed
     }
 
     private fun askNotificationPermission() {
@@ -60,12 +59,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
+
         NotificationHelper.createChannels(this)
         NightWorkerScheduler.scheduleNightWorker(this)
         askNotificationPermission()
         com.telo.tinyzora.util.ConsoleLogger.init()
-        com.telo.tinyzora.core.inference.LlamaServerService.start(this)
 
         setContent {
             TinyZoraTheme {
@@ -77,7 +75,7 @@ class MainActivity : ComponentActivity() {
                 val startDest = if (userPrefs.isPinSet()) "/lockscreen" else "/chat"
 
                 NavHost(
-                    navController = navController, 
+                    navController = navController,
                     startDestination = "/splash",
                     modifier = Modifier.fillMaxSize(),
                     enterTransition = { EnterTransition.None },
@@ -108,7 +106,7 @@ class MainActivity : ComponentActivity() {
                                 painter = androidx.compose.ui.res.painterResource(id = R.mipmap.ic_splash_logo),
                                 contentDescription = "App Logo",
                                 modifier = Modifier.size(280.dp).graphicsLayer(
-                                    scaleX = scale.value, 
+                                    scaleX = scale.value,
                                     scaleY = scale.value
                                 )
                             )
@@ -128,7 +126,7 @@ class MainActivity : ComponentActivity() {
                                     com.telo.tinyzora.core.chat.ChatRepository(context).getChatHistoryFile().delete()
                                     File(context.filesDir, "memory.json").delete()
                                     com.telo.tinyzora.core.security.UserPreferences(context).clearPin()
-                                    
+
                                     withContext(kotlinx.coroutines.Dispatchers.Main) {
                                         val pm = context.packageManager
                                         val intent = pm.getLaunchIntentForPackage(context.packageName)
@@ -150,7 +148,7 @@ class MainActivity : ComponentActivity() {
                             }
                         )
                     }
-                    
+
                     composable("/settings") {
                         val chatRepo = com.telo.tinyzora.core.chat.ChatRepository(this@MainActivity)
                         SettingsScreen(
@@ -160,7 +158,7 @@ class MainActivity : ComponentActivity() {
                             onOpenAIConfig = { navController.navigate("/ai_config") }
                         )
                     }
-                    
+
                     composable("/memory") {
                         com.telo.tinyzora.ui.memory.MemoryScreen(
                             onBack = { navController.popBackStack() }
@@ -172,22 +170,16 @@ class MainActivity : ComponentActivity() {
                             onBack = { navController.popBackStack() }
                         )
                     }
-
                 }
             }
         }
-        
+
         handleIntent(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleIntent(intent)
-    }
-    override fun onDestroy() {
-              com.telo.tinyzora.core.inference.LlamaServerService.stop(this)
-                      super.onDestroy()
-                          
     }
 
     private fun handleIntent(intent: Intent?) {
@@ -198,5 +190,3 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-
-
