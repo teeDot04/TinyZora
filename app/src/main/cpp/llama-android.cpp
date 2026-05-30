@@ -17,7 +17,24 @@ static int32_t g_top_k = 40;
 static float   g_top_p = 0.9f;
 static float   g_temp  = 0.7f;
 
+static void llama_log_callback_android(ggml_log_level level, const char* text, void*) {
+    int prio;
+    switch (level) {
+        case GGML_LOG_LEVEL_ERROR: prio = ANDROID_LOG_ERROR; break;
+        case GGML_LOG_LEVEL_WARN:  prio = ANDROID_LOG_WARN;  break;
+        case GGML_LOG_LEVEL_INFO:  prio = ANDROID_LOG_INFO;  break;
+        default:                   prio = ANDROID_LOG_DEBUG; break;
+    }
+    __android_log_write(prio, "llama.cpp", text);
+}
+
 extern "C" {
+
+JNIEXPORT jboolean JNICALL
+Java_com_telo_tinyzora_core_inference_LlamaAndroid_isModelLoaded(
+        JNIEnv*, jobject) {
+    return (g_model != nullptr && g_ctx != nullptr) ? JNI_TRUE : JNI_FALSE;
+}
 
 JNIEXPORT jboolean JNICALL
 Java_com_telo_tinyzora_core_inference_LlamaAndroid_loadModel(
@@ -33,6 +50,7 @@ Java_com_telo_tinyzora_core_inference_LlamaAndroid_loadModel(
     g_temp  = temp;
 
     llama_backend_init();
+    llama_log_set(llama_log_callback_android, nullptr);
 
     auto mparams          = llama_model_default_params();
     mparams.n_gpu_layers  = 0;
@@ -59,7 +77,8 @@ Java_com_telo_tinyzora_core_inference_LlamaAndroid_loadModel(
         return JNI_FALSE;
     }
 
-    LOGI("Model loaded: n_ctx=%d threads=%d", n_ctx, n_threads);
+    LOGI("Model loaded: n_ctx=%d threads=%d top_k=%d top_p=%.2f temp=%.2f",
+         n_ctx, n_threads, top_k, top_p, temp);
     return JNI_TRUE;
 }
 
@@ -76,9 +95,19 @@ Java_com_telo_tinyzora_core_inference_LlamaAndroid_sendMessageNative(
     env->ReleaseStringUTFChars(prompt, raw);
 
     const llama_vocab* vocab = llama_model_get_vocab(g_model);
+    const int n_ctx = (int)llama_n_ctx(g_ctx);
 
     int n_tokens = -llama_tokenize(vocab, text.c_str(), (int)text.size(),
                                    nullptr, 0, true, true);
+    if (n_tokens <= 0) {
+        LOGE("Tokenization failed or empty prompt");
+        return;
+    }
+    if (n_tokens >= n_ctx) {
+        LOGE("Prompt too long: %d tokens >= ctx size %d", n_tokens, n_ctx);
+        return;
+    }
+
     std::vector<llama_token> tokens((size_t)n_tokens);
     llama_tokenize(vocab, text.c_str(), (int)text.size(),
                    tokens.data(), n_tokens, true, true);
@@ -103,7 +132,9 @@ Java_com_telo_tinyzora_core_inference_LlamaAndroid_sendMessageNative(
 
     auto sparams = llama_sampler_chain_default_params();
     llama_sampler* sampler = llama_sampler_chain_init(sparams);
+    llama_sampler_chain_add(sampler, llama_sampler_init_penalties(64, 1.1f, 0.0f, 0.0f));
     llama_sampler_chain_add(sampler, llama_sampler_init_top_k(g_top_k));
+    llama_sampler_chain_add(sampler, llama_sampler_init_min_p(0.05f, 1));
     llama_sampler_chain_add(sampler, llama_sampler_init_top_p(g_top_p, 1));
     llama_sampler_chain_add(sampler, llama_sampler_init_temp(g_temp));
     llama_sampler_chain_add(sampler, llama_sampler_init_dist(0xFFFFFFFF));
@@ -112,7 +143,7 @@ Java_com_telo_tinyzora_core_inference_LlamaAndroid_sendMessageNative(
     jmethodID cb  = env->GetMethodID(cls, "onTokenGenerated", "(Ljava/lang/String;)V");
 
     int n_pos = n_tokens;
-    const int n_max = (int)llama_n_ctx(g_ctx) - n_pos;
+    const int n_max = n_ctx - n_pos;
 
     for (int i = 0; i < n_max && !g_stop.load(); i++) {
         llama_token token = llama_sampler_sample(sampler, g_ctx, -1);
