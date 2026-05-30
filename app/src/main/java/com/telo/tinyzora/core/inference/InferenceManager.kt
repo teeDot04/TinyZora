@@ -102,11 +102,12 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
         }
     }
 
-    uspend fun ensureModeIs(mode: String, chatContext: String? = null) {
-          if (!isInitialized) initialise(chatContext)
-              else if (!llama.isModelLoaded()) initialise(chatContext)
-            }
+    suspend fun ensureModeIs(mode: String, chatContext: String? = null) {
+        if (!isInitialized || !llama.isModelLoaded()) {
+            initialise(chatContext)
+        }
     }
+
     suspend fun resetConversation(chatContext: String? = null) {
         mutex.withLock {
             rebuildHistory(chatContext)
@@ -169,7 +170,7 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
         mutex.withLock {
             val modelPath = userPrefs.getModelPath()
             if (modelPath.isBlank()) return
-            ConsoleLogger.d(TAG, "Model path changed — reloading: $modelPath")
+            ConsoleLogger.d(TAG, "Model path changed, reloading: $modelPath")
             llama.stopGeneration()
             llama.unloadModel()
             val loaded = llama.loadModel(
@@ -191,44 +192,48 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
 
     private suspend fun ProducerScope<InferenceResult>.streamText(userText: String) {
         if (!llama.isModelLoaded()) {
-            send(InferenceResult("Model not loaded. Please select a model in Settings → AI Config.", true))
+            send(InferenceResult("Model not loaded. Please select a model in Settings > AI Config.", true))
             return
         }
         history.add("user" to userText)
         val responseBuilder = StringBuilder()
         var inThink = false
 
-        llama.sendMessageBlocking(buildPrompt()) { token ->
-            var remaining = token
-            while (remaining.isNotEmpty()) {
-                if (!inThink) {
-                    val start = remaining.indexOf("<think>")
-                    if (start == -1) {
-                        responseBuilder.append(remaining)
-                        trySend(InferenceResult(remaining, false))
-                        remaining = ""
-                    } else {
-                        if (start > 0) {
-                            val t = remaining.substring(0, start)
-                            responseBuilder.append(t)
-                            trySend(InferenceResult(t, false))
+        try {
+            llama.sendMessageBlocking(buildPrompt()) { token ->
+                var remaining = token
+                while (remaining.isNotEmpty()) {
+                    if (!inThink) {
+                        val start = remaining.indexOf("<think>")
+                        if (start == -1) {
+                            responseBuilder.append(remaining)
+                            trySend(InferenceResult(remaining, false))
+                            remaining = ""
+                        } else {
+                            if (start > 0) {
+                                val t = remaining.substring(0, start)
+                                responseBuilder.append(t)
+                                trySend(InferenceResult(t, false))
+                            }
+                            remaining = remaining.substring(start + 7)
+                            inThink = true
                         }
-                        remaining = remaining.substring(start + 7)
-                        inThink = true
-                    }
-                } else {
-                    val end = remaining.indexOf("</think>")
-                    if (end == -1) {
-                        trySend(InferenceResult("", false, remaining))
-                        remaining = ""
                     } else {
-                        val thinking = remaining.substring(0, end)
-                        if (thinking.isNotEmpty()) trySend(InferenceResult("", false, thinking))
-                        remaining = remaining.substring(end + 8)
-                        inThink = false
+                        val end = remaining.indexOf("</think>")
+                        if (end == -1) {
+                            trySend(InferenceResult("", false, remaining))
+                            remaining = ""
+                        } else {
+                            val thinking = remaining.substring(0, end)
+                            if (thinking.isNotEmpty()) trySend(InferenceResult("", false, thinking))
+                            remaining = remaining.substring(end + 8)
+                            inThink = false
+                        }
                     }
                 }
             }
+        } catch (e: Exception) {
+            ConsoleLogger.e(TAG, "Generation error: ${e.message}")
         }
 
         history.add("assistant" to responseBuilder.toString())
@@ -243,3 +248,4 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
         append("<|im_start|>assistant\n")
     }
 }
+
