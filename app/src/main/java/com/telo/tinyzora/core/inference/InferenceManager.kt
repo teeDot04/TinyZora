@@ -1,15 +1,20 @@
 package com.telo.tinyzora.core.inference
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.graphics.Bitmap
 import com.telo.tinyzora.util.ConsoleLogger
 import com.telo.tinyzora.core.memory.MemoryStore
 import com.telo.tinyzora.core.memory.MemoryConsolidator
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.ProducerScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -23,12 +28,24 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
 
     private val TAG = "InferenceManager"
     private val mutex = Mutex()
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val userPrefs = com.telo.tinyzora.core.security.UserPreferences(context)
     private val llama = LlamaAndroid()
+    private val sharedPrefs: SharedPreferences =
+        context.getSharedPreferences("tinyzora_prefs", Context.MODE_PRIVATE)
 
     private val history = mutableListOf<Pair<String, String>>()
     private var systemPrompt = ""
     private var isInitialized = false
+
+    private val nThreads: Int =
+        (Runtime.getRuntime().availableProcessors() / 2).coerceIn(2, 6)
+
+    private val modelPathListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == "model_path" && isInitialized) {
+            scope.launch { reloadModel() }
+        }
+    }
 
     suspend fun initialise(chatContext: String? = null): Boolean = withContext(Dispatchers.IO) {
         try {
@@ -43,7 +60,7 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
             val loaded = llama.loadModel(
                 path     = modelPath,
                 nCtx     = userPrefs.getCtxSize(),
-                nThreads = 4,
+                nThreads = nThreads,
                 topK     = userPrefs.getTopK(),
                 topP     = userPrefs.getTopP(),
                 temp     = userPrefs.getTemperature()
@@ -75,8 +92,9 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
             com.telo.tinyzora.core.notifications.ReminderScheduler
                 .scheduleAllReminders(context, memoryStore)
 
+            sharedPrefs.registerOnSharedPreferenceChangeListener(modelPathListener)
             isInitialized = true
-            ConsoleLogger.d(TAG, "InferenceManager initialized (JNI)")
+            ConsoleLogger.d(TAG, "InferenceManager initialized (JNI, $nThreads threads)")
             true
         } catch (e: Exception) {
             ConsoleLogger.e(TAG, "Failed to initialize: ${e.message}", e)
@@ -137,11 +155,37 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
     }
 
     fun close() {
+        sharedPrefs.unregisterOnSharedPreferenceChangeListener(modelPathListener)
         llama.stopGeneration()
         llama.unloadModel()
         history.clear()
         isInitialized = false
+        scope.cancel()
         ConsoleLogger.d(TAG, "InferenceManager closed.")
+    }
+
+    private suspend fun reloadModel() {
+        mutex.withLock {
+            val modelPath = userPrefs.getModelPath()
+            if (modelPath.isBlank()) return
+            ConsoleLogger.d(TAG, "Model path changed — reloading: $modelPath")
+            llama.stopGeneration()
+            llama.unloadModel()
+            val loaded = llama.loadModel(
+                path     = modelPath,
+                nCtx     = userPrefs.getCtxSize(),
+                nThreads = nThreads,
+                topK     = userPrefs.getTopK(),
+                topP     = userPrefs.getTopP(),
+                temp     = userPrefs.getTemperature()
+            )
+            if (loaded) {
+                rebuildHistory()
+                ConsoleLogger.d(TAG, "Model reloaded successfully.")
+            } else {
+                ConsoleLogger.e(TAG, "Failed to reload model: $modelPath")
+            }
+        }
     }
 
     private suspend fun ProducerScope<InferenceResult>.streamText(userText: String) {
