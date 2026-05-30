@@ -102,10 +102,11 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
         }
     }
 
-    suspend fun ensureModeIs(mode: String, chatContext: String? = null) {
-        if (!isInitialized) initialise(chatContext)
+    uspend fun ensureModeIs(mode: String, chatContext: String? = null) {
+          if (!isInitialized) initialise(chatContext)
+              else if (!llama.isModelLoaded()) initialise(chatContext)
+            }
     }
-
     suspend fun resetConversation(chatContext: String? = null) {
         mutex.withLock {
             rebuildHistory(chatContext)
