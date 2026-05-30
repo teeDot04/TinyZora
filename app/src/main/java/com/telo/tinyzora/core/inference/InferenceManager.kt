@@ -145,6 +145,10 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
     }
 
     private suspend fun ProducerScope<InferenceResult>.streamText(userText: String) {
+        if (!llama.isModelLoaded()) {
+            send(InferenceResult("Model not loaded. Please select a model in Settings → AI Config.", true))
+            return
+        }
         history.add("user" to userText)
         val responseBuilder = StringBuilder()
         var inThink = false

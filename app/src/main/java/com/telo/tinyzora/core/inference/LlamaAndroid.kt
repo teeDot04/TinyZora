@@ -1,8 +1,5 @@
 package com.telo.tinyzora.core.inference
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-
 class LlamaAndroid {
 
     private var tokenCallback: ((String) -> Unit)? = null
@@ -17,6 +14,8 @@ class LlamaAndroid {
     private fun onTokenGenerated(token: String) {
         tokenCallback?.invoke(token)
     }
+
+    external fun isModelLoaded(): Boolean
 
     external fun loadModel(
         path: String,
