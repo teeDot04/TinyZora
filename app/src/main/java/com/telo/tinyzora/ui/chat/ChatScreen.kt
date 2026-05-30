@@ -795,7 +795,7 @@ fun ChatScreen(
                         )
 
                         // Animated Send / Stop button
-                        val canSend = (inputText.text.trim().isNotEmpty() || attachedImage != null || attachedAudio != null || attachedDocumentText != null)
+                        val canSend = uiState.isEngineReady && !streamingState.isGenerating && (inputText.text.trim().isNotEmpty() || attachedImage != null || attachedAudio != null || attachedDocumentText != null)
                         SendStopButton(
                             isGenerating = streamingState.isGenerating,
                             canSend = canSend,
