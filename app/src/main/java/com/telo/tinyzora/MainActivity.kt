@@ -12,7 +12,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -44,8 +43,7 @@ class MainActivity : ComponentActivity() {
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { isGranted: Boolean ->
-    }
+    ) { }
 
     private fun askNotificationPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -57,19 +55,31 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun askStoragePermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (!android.os.Environment.isExternalStorageManager()) {
+                val intent = Intent(
+                    android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                    android.net.Uri.parse("package:$packageName")
+                )
+                startActivity(intent)
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         NotificationHelper.createChannels(this)
         NightWorkerScheduler.scheduleNightWorker(this)
         askNotificationPermission()
+        askStoragePermission()
         com.telo.tinyzora.util.ConsoleLogger.init()
 
         setContent {
             TinyZoraTheme {
                 val navController = rememberNavController()
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
-                val currentRoute = navBackStackEntry?.destination?.route?.substringBefore("?")
 
                 val userPrefs = remember { UserPreferences(this@MainActivity) }
                 val startDest = if (userPrefs.isPinSet()) "/lockscreen" else "/chat"
@@ -126,7 +136,6 @@ class MainActivity : ComponentActivity() {
                                     com.telo.tinyzora.core.chat.ChatRepository(context).getChatHistoryFile().delete()
                                     File(context.filesDir, "memory.json").delete()
                                     com.telo.tinyzora.core.security.UserPreferences(context).clearPin()
-
                                     withContext(kotlinx.coroutines.Dispatchers.Main) {
                                         val pm = context.packageManager
                                         val intent = pm.getLaunchIntentForPackage(context.packageName)
@@ -140,7 +149,7 @@ class MainActivity : ComponentActivity() {
                     }
 
                     composable("/chat") {
-                        val viewModel: ChatViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+                        val viewModel: ChatViewModel = viewModel()
                         ChatScreen(
                             viewModel = viewModel,
                             onOpenSettings = {
@@ -160,7 +169,7 @@ class MainActivity : ComponentActivity() {
                     }
 
                     composable("/memory") {
-                        com.telo.tinyzora.ui.memory.MemoryScreen(
+                        MemoryScreen(
                             onBack = { navController.popBackStack() }
                         )
                     }
