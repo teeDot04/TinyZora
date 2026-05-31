@@ -14,8 +14,8 @@ set(GGML_CUDA                OFF CACHE BOOL "" FORCE)
 set(GGML_OPENCL              OFF CACHE BOOL "" FORCE)
 set(GGML_VULKAN              OFF CACHE BOOL "" FORCE)
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -march=armv8-a+fp+simd -ffast-math")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=armv8-a+fp+simd -ffast-math")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -march=armv8-a+fp+simd -ffast-math -fno-finite-math-only")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=armv8-a+fp+simd -ffast-math -fno-finite-math-only")
 set(GGML_NEON ON CACHE BOOL "" FORCE)
 add_subdirectory(${LLAMA_CPP_DIR} llama_build)
 
@@ -31,7 +31,7 @@ target_compile_options(llama_android PRIVATE
     -std=c++17
       -O3
         -march=armv8-a+fp+simd
-              -ffast-math
+              -ffast-math -fno-finite-math-only
                 -DGGML_USE_CPU
                   -DGGML_ARM_NEON
                 )
