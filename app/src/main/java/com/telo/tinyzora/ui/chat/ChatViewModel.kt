@@ -260,6 +260,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 responseBuilder.append("\n[Error: ${e.message}]")
                 _streamingState.value = _streamingState.value.copy(streamingText = responseBuilder.toString())
             } else {
+                _streamingState.value = StreamingState(isGenerating = false, streamingText = "", streamingThinking = null, isThinking = false) 
                 throw e
             }
         } finally {
