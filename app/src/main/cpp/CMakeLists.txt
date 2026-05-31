@@ -30,8 +30,6 @@ target_compile_options(llama_android PRIVATE
     -std=c++17
       -O3
         -march=armv8-a+fp+simd
-          -mfpu=neon-fp-armv8
-            -mfloat-abi=softfp
               -ffast-math
                 -DGGML_USE_CPU
                   -DGGML_ARM_NEON
