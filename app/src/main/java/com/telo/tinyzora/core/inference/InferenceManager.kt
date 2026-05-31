@@ -103,6 +103,7 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
     }
 
     suspend fun ensureModeIs(mode: String, chatContext: String? = null) {
+      ConsoleLogger.d(TAG, "ensureModeIs: isInitialized=$isInitialized modelLoaded=${llama.isModelLoaded()}")
         if (!isInitialized || !llama.isModelLoaded()) {
             initialise(chatContext)
         }
