@@ -536,7 +536,7 @@ fun ChatScreen(
                 contentPadding = PaddingValues(vertical = 16.dp)
             ) {
                 // 3-dot indicator while waiting for first token
-                if (streamingState.isGenerating && streamingState.streamingText.isEmpty() && streamingState.streamingThinking == null) {}
+                if (streamingState.isGenerating && streamingState.streamingText.isEmpty() && streamingState.streamingThinking == null) {
                     item(key = "thinking_indicator") {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
