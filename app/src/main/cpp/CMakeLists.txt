@@ -14,7 +14,8 @@ set(GGML_CUDA                OFF CACHE BOOL "" FORCE)
 set(GGML_OPENCL              OFF CACHE BOOL "" FORCE)
 set(GGML_VULKAN              OFF CACHE BOOL "" FORCE)
 
-set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=armv8-a+fp+simd -ffast-math")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -march=armv8-a+fp+simd -ffast-math")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=armv8-a+fp+simd -ffast-math")
 set(GGML_NEON ON CACHE BOOL "" FORCE)
 add_subdirectory(${LLAMA_CPP_DIR} llama_build)
 
