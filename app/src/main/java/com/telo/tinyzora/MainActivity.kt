@@ -75,7 +75,18 @@ class MainActivity : ComponentActivity() {
         NotificationHelper.createChannels(this)
         NightWorkerScheduler.scheduleNightWorker(this)
         askNotificationPermission()
-        askStoragePermission()
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || android.os.Environment.isExternalStorageManager()) {
+               already granted, skip
+               } else {
+                     val prefs = getSharedPreferences("tinyzora_prefs", MODE_PRIVATE)
+                         if (!prefs.getBoolean("storage_permission_asked", false)) {
+                                   prefs.edit().putBoolean("storage_permission_asked", true).apply()
+                                           askStoragePermission()
+                                               }
+                                               }
+                           }
+                 }
+        }
         com.telo.tinyzora.util.ConsoleLogger.init()
 
         setContent {
