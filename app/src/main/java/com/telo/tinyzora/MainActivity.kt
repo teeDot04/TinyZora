@@ -24,6 +24,7 @@ import com.telo.tinyzora.ui.settings.SettingsScreen
 import com.telo.tinyzora.ui.memory.MemoryScreen
 import com.telo.tinyzora.core.notifications.NotificationHelper
 import com.telo.tinyzora.core.training.NightWorkerScheduler
+import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.Manifest
@@ -60,11 +61,15 @@ class MainActivity : ComponentActivity() {
     private fun askStoragePermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             if (!android.os.Environment.isExternalStorageManager()) {
-                val intent = Intent(
-                    android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                    android.net.Uri.parse("package:$packageName")
-                )
-                startActivity(intent)
+                val prefs = getSharedPreferences("tinyzora_prefs", Context.MODE_PRIVATE)
+                if (!prefs.getBoolean("storage_permission_asked", false)) {
+                    prefs.edit().putBoolean("storage_permission_asked", true).apply()
+                    val intent = Intent(
+                        android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                        android.net.Uri.parse("package:$packageName")
+                    )
+                    startActivity(intent)
+                }
             }
         }
     }
@@ -75,19 +80,9 @@ class MainActivity : ComponentActivity() {
         NotificationHelper.createChannels(this)
         NightWorkerScheduler.scheduleNightWorker(this)
         askNotificationPermission()
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || android.os.Environment.isExternalStorageManager()) {
-               already granted, skip
-               } else {
-                     val prefs = getSharedPreferences("tinyzora_prefs", MODE_PRIVATE)
-                         if (!prefs.getBoolean("storage_permission_asked", false)) {
-                                   prefs.edit().putBoolean("storage_permission_asked", true).apply()
-                                           askStoragePermission()
-                                               }
-                                               }
-                           }
-                 }
-        }
+        askStoragePermission()
         com.telo.tinyzora.util.ConsoleLogger.init()
+        com.telo.tinyzora.util.ConsoleLogger.initFile(this)
 
         setContent {
             TinyZoraTheme {
