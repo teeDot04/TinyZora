@@ -149,6 +149,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 chatRepo.addMessage(intro)
             }
             
+            ConsoleLogger.d("ChatViewModel", "init block running")
             val success = inferenceManager.initialise(buildRecentHistoryContext())
             _uiState.value = _uiState.value.copy(
                 isEngineReady = success,
