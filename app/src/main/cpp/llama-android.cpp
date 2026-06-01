@@ -118,7 +118,8 @@ Java_com_telo_tinyzora_core_inference_LlamaAndroid_sendMessageNative(
     if (g_n_past + n_tokens >= n_ctx) {
         LOGI("Context window full (n_past=%d + n_tokens=%d >= n_ctx=%d), sliding window",
              g_n_past, n_tokens, n_ctx);
-        llama_kv_cache_clear(g_ctx);
+        llama_kv_cache_seq_rm(g_ctx, -1, 0, -1);
+        ;
         g_n_past = 0;
     }
 
