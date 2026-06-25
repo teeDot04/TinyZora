@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<metalink xmlns="urn:ietf:params:xml:ns:metalink">
+  <generator>MirrorBrain/2.19.0</generator>
+  <origin dynamic="true">https://download.kiwix.org/zim/libretexts/libretexts.org_en_stats_2026-01.zim.meta4</origin>
+  <published>2026-06-03T20:12:20Z</published>
+  <publisher>
+    <name>Kiwix project</name>
+    <url>https://kiwix.org</url>
+  </publisher>
+
+  <file name="libretexts.org_en_stats_2026-01.zim">
+    <size>215779148</size>
+
+    <!-- <mtime>1768598115</mtime> -->
+
+    <!-- internal id: 2149794 -->
+    <hash type="md5">b3ed8e34eea5e8609e98eb18080d8fd8</hash>
+    <hash type="sha-1">307319905f5828ed8fccf5770b84edb9a72ecc9d</hash>
+    <hash type="sha-256">39697d1ef60ee5ae24c5b54514e0e1b8f2255ed7d12ef273af825a7f2ed5c5e7</hash>
+    <pieces length="4194304" type="sha-1">
+      <hash>323df22950145153b09c053e11bfd0cfffc55752</hash>
+      <hash>ff37a327180b2df413035ce41ccb4ddabbccff31</hash>
+      <hash>a4ea105574821ea98bf628313156e2f5752f74a6</hash>
+      <hash>bed4285683a51d12e89099ec73e31b672fdbd962</hash>
+      <hash>86d0e0492241ad50406601613cd0691264e4feb5</hash>
+      <hash>83822787f501ba192225ac28fd160a6a5cfa88fb</hash>
+      <hash>a85190b6602cde3a227eeda870338e7a3d258c1b</hash>
+      <hash>c90cc55fb3a9bb240abdef02a30c14d2d6471718</hash>
+      <hash>88a1298cb7792b338ab6967d4e86ad2efb8efb62</hash>
+      <hash>0f867bd2f60d91b2c1b4a6a560729d83f55b4764</hash>
+      <hash>6fc90c2b9c86ce6fe2472f4007971e7b44a34d5a</hash>
+      <hash>c137396dd87be1f9535e17a3a85e1bfb026d18a2</hash>
+      <hash>5104755d3071830295ba16916818058990c28b64</hash>
+      <hash>c445ef537bd5d429483c07c61582e0782479597f</hash>
+      <hash>cc12805d8a2bcd2131479adcf4dbae732b7c8d4a</hash>
+      <hash>7c5ec7adae0c098205da0d7c21a1aacdeae567a4</hash>
+      <hash>b2b0a817528c26d341e63caf9aeac27120851395</hash>
+      <hash>110a3ebf25175029609dfe849a33564c07ff74bf</hash>
+      <hash>d2a928cc89ecf156c8887e3b3f5a312791d97d24</hash>
+      <hash>0b153e09d9c6254f22872c14a3bb5055347233e5</hash>
+      <hash>7b14b9a425ae766df26341ab3f94e6d645b83dfd</hash>
+      <hash>7e03692462528c684b534d0f05554e9652388f57</hash>
+      <hash>712a2c5dfd635aae353074937a89e4cb5cd97104</hash>
+      <hash>e380d1025730be600270964695dc56bfcbdfdcc8</hash>
+      <hash>167f84b1347e42de36eddaf285311ccbfa319d62</hash>
+      <hash>62f9ba3c65169a9afe2d3ded814563b47443914d</hash>
+      <hash>1df246adf62a4573424d698e8f4ca5318e4d2915</hash>
+      <hash>6a0375e30619e58095db0fd781741459676424dd</hash>
+      <hash>14e25ae613ee6cd8aba456ae36b9ac1c3749e60d</hash>
+      <hash>82f6681507318765e22861231f89ea3e980f763f</hash>
+      <hash>cdad398b5a08b07d7e1a0a156a26af87d2018e55</hash>
+      <hash>16c109f861ad6b6c8daa111ecd36ae6e3d556771</hash>
+      <hash>89cdd068ae5c9491d0b55a6b72f41f3cf83c0014</hash>
+      <hash>aee486cfe6955b16bb7ee707bf778822c9b5c042</hash>
+      <hash>c3bf22cd2348b6c28b0b91676f9827d0ae97fc2f</hash>
+      <hash>934c0bc3d476ef0b2eecba8efafc47529a733b9d</hash>
+      <hash>7b58b2a8270d75174d4fa4e212e5c87ad1352e18</hash>
+      <hash>c0ba0de15e17055e0e0c1537bd51c3eee8d527d1</hash>
+      <hash>a4e4ec19a65de3048f0b91c3a6d3e0709d6a772a</hash>
+      <hash>fdf48aa7c6751f8b03e137ce486f30a655085e2b</hash>
+      <hash>1bdcbe30b54da80ef6cc0453754096d6ace62ec4</hash>
+      <hash>10b11af088c50acb1f5422b2373109446ca27198</hash>
+      <hash>9d0c89347c02b9b6a5b31b6061b8d4613ecdc022</hash>
+      <hash>5a25a1a6321a4a767d0aa6200faf482eb4070263</hash>
+      <hash>3e4ffd1fd94336887a4bc581a664e09fcd54217c</hash>
+      <hash>a8a96b029e6e2df1e05a7a917828189a449628f9</hash>
+      <hash>f54c8bea9ee0c59e1bb3ca7ddc3e174deb2dc0e0</hash>
+      <hash>f25ff90cc86c1bb84181b62816bddc274a61df56</hash>
+      <hash>c88f2ecb5dfd5dd24ca33df0cc8b66adb541984e</hash>
+      <hash>6f34d136af9e272ad6693e06c3b399980b9a1568</hash>
+      <hash>614eb0d972ca4d1138897be8a52a198bfe8e75ec</hash>
+      <hash>212e748bb6013fafdef362378fc7af69d8ef6489</hash>
+    </pieces>
+
+
+    <!-- Found 10 mirrors: 0 in the same network prefix, 0 in the same autonomous system,
+         0 handling this country, 0 in the same region, 10 elsewhere -->
+
+    <!-- Mirrors in the same network (unknown): -->
+
+    <!-- Mirrors in the same AS (unknown): -->
+
+    <!-- Mirrors which handle this country (KE): -->
+
+    <!-- Mirrors in the same continent (AF): -->
+
+    <!-- Mirrors in the rest of the world: -->
+    <url location="nl" priority="1">https://ftp.nluug.nl/pub/kiwix/zim/libretexts/libretexts.org_en_stats_2026-01.zim</url>
+    <url location="se" priority="2">https://mirror.accum.se/mirror/kiwix.org/zim/libretexts/libretexts.org_en_stats_2026-01.zim</url>
+    <url location="fr" priority="3">https://mirror.download.kiwix.org/zim/libretexts/libretexts.org_en_stats_2026-01.zim</url>
+    <url location="dk" priority="4">https://mirrors.dotsrc.org/kiwix/zim/libretexts/libretexts.org_en_stats_2026-01.zim</url>
+    <url location="us" priority="5">https://ny.mirror.driftle.ss/kiwix/zim/libretexts/libretexts.org_en_stats_2026-01.zim</url>
+    <url location="us" priority="6">https://wi.mirror.driftle.ss/kiwix/zim/libretexts/libretexts.org_en_stats_2026-01.zim</url>
+    <url location="de" priority="7">https://ftp.fau.de/kiwix/zim/libretexts/libretexts.org_en_stats_2026-01.zim</url>
+    <url location="fr" priority="8">https://mirror-sites-fr.mblibrary.info/mirror-sites/download.kiwix.org/zim/libretexts/libretexts.org_en_stats_2026-01.zim</url>
+    <url location="ca" priority="9">https://mirror-sites-ca.mblibrary.info/mirror-sites/download.kiwix.org/zim/libretexts/libretexts.org_en_stats_2026-01.zim</url>
+    <url location="aq" priority="10">https://mirror-sites-in.mblibrary.info/mirror-sites/download.kiwix.org/zim/libretexts/libretexts.org_en_stats_2026-01.zim</url>
+  </file>
+</metalink>

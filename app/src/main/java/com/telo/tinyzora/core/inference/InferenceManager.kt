@@ -242,7 +242,6 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
     }
 
     private fun buildPrompt(): String = buildString {
-        append("<|im_start|>system\n").append(systemPrompt).append("\n<|im_end|>\n")
         for ((role, content) in history) {
             append("<|im_start|>$role\n").append(content).append("\n<|im_end|>\n")
         }
