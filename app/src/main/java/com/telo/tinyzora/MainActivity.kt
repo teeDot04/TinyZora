@@ -3,7 +3,6 @@ package com.telo.tinyzora
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -13,10 +12,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.ViewModelProvider
 import com.telo.tinyzora.ui.chat.ChatScreen
 import com.telo.tinyzora.ui.chat.ChatViewModel
@@ -24,7 +25,6 @@ import com.telo.tinyzora.ui.settings.SettingsScreen
 import com.telo.tinyzora.ui.memory.MemoryScreen
 import com.telo.tinyzora.core.notifications.NotificationHelper
 import com.telo.tinyzora.core.training.NightWorkerScheduler
-import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.Manifest
@@ -42,11 +42,10 @@ import java.io.File
 
 class MainActivity : ComponentActivity() {
 
-    private val chatViewModel: ChatViewModel by viewModels()
-
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { }
+    ) { isGranted: Boolean ->
+    }
 
     private fun askNotificationPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -58,36 +57,19 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun askStoragePermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            if (!android.os.Environment.isExternalStorageManager()) {
-                val prefs = getSharedPreferences("tinyzora_prefs", Context.MODE_PRIVATE)
-                if (!prefs.getBoolean("storage_permission_asked", false)) {
-                    prefs.edit().putBoolean("storage_permission_asked", true).apply()
-                    val intent = Intent(
-                        android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                        android.net.Uri.parse("package:$packageName")
-                    )
-                    startActivity(intent)
-                }
-            }
-        }
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         NotificationHelper.createChannels(this)
         NightWorkerScheduler.scheduleNightWorker(this)
         askNotificationPermission()
-        askStoragePermission()
         com.telo.tinyzora.util.ConsoleLogger.init()
-        com.telo.tinyzora.util.ConsoleLogger.initFile(this)
 
         setContent {
             TinyZoraTheme {
                 val navController = rememberNavController()
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
+                val currentRoute = navBackStackEntry?.destination?.route?.substringBefore("?")
 
                 val userPrefs = remember { UserPreferences(this@MainActivity) }
                 val startDest = if (userPrefs.isPinSet()) "/lockscreen" else "/chat"
@@ -144,6 +126,7 @@ class MainActivity : ComponentActivity() {
                                     com.telo.tinyzora.core.chat.ChatRepository(context).getChatHistoryFile().delete()
                                     File(context.filesDir, "memory.json").delete()
                                     com.telo.tinyzora.core.security.UserPreferences(context).clearPin()
+
                                     withContext(kotlinx.coroutines.Dispatchers.Main) {
                                         val pm = context.packageManager
                                         val intent = pm.getLaunchIntentForPackage(context.packageName)
@@ -157,8 +140,9 @@ class MainActivity : ComponentActivity() {
                     }
 
                     composable("/chat") {
+                        val viewModel: ChatViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
                         ChatScreen(
-                            viewModel = chatViewModel,
+                            viewModel = viewModel,
                             onOpenSettings = {
                                 navController.navigate("/settings")
                             }
@@ -176,7 +160,7 @@ class MainActivity : ComponentActivity() {
                     }
 
                     composable("/memory") {
-                        MemoryScreen(
+                        com.telo.tinyzora.ui.memory.MemoryScreen(
                             onBack = { navController.popBackStack() }
                         )
                     }

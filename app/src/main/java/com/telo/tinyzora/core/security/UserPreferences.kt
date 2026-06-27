@@ -52,7 +52,7 @@ class UserPreferences(context: Context) {
     fun getMaxTokens(): Int = prefs.getInt(KEY_MAX_TOKENS, 8192)
     fun setMaxTokens(v: Int) = prefs.edit().putInt(KEY_MAX_TOKENS, v).apply()
 
-    fun getCtxSize(): Int = prefs.getInt(KEY_CTX_SIZE, 2048)
+    fun getCtxSize(): Int = prefs.getInt(KEY_CTX_SIZE, 4096)
     fun setCtxSize(v: Int) = prefs.edit().putInt(KEY_CTX_SIZE, v).apply()
 
     fun getImportedModels(): List<com.telo.tinyzora.core.inference.ImportedModel> {

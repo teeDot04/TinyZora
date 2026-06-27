@@ -44,13 +44,6 @@ object ConsoleLogger {
         appendLog("I/$tag: $message")
     }
 
-    private var logFile: java.io.File? = null
-
-    fun initFile(context: android.content.Context) {
-          logFile = java.io.File(context.filesDir, "zora_log.txt").also {
-                    if (it.length() > 512_000) it.delete()
-          }
-    }
     private fun appendLog(msg: String) {
         val time = dateFormat.format(Date())
         val formatted = "[$time] $msg"
@@ -60,7 +53,6 @@ object ConsoleLogger {
             current.removeAt(current.size - 1)
         }
         _logs.value = current
-        try { logFile?.appendText("$formatted\n") } catch (_: Exception) {}
     }
 
     fun clear() {

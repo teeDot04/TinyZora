@@ -375,7 +375,11 @@ fun ChatScreen(
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            // consolidateMemory call removed to prevent redundant Disk I/O
+            if (event == Lifecycle.Event.ON_RESUME) {
+                if (viewModel.streamingState.value.isGenerating) {
+                    viewModel.resetStreamingState()
+                }
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
@@ -536,7 +540,7 @@ fun ChatScreen(
                 contentPadding = PaddingValues(vertical = 16.dp)
             ) {
                 // 3-dot indicator while waiting for first token
-                if (streamingState.isGenerating && streamingState.streamingText.isEmpty() && streamingState.streamingThinking == null) {
+                if (streamingState.isGenerating && streamingState.streamingText.isEmpty()) {
                     item(key = "thinking_indicator") {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -795,7 +799,7 @@ fun ChatScreen(
                         )
 
                         // Animated Send / Stop button
-                        val canSend = uiState.isEngineReady && !streamingState.isGenerating && (inputText.text.trim().isNotEmpty() || attachedImage != null || attachedAudio != null || attachedDocumentText != null)
+                        val canSend = (inputText.text.trim().isNotEmpty() || attachedImage != null || attachedAudio != null || attachedDocumentText != null)
                         SendStopButton(
                             isGenerating = streamingState.isGenerating,
                             canSend = canSend,

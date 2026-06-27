@@ -149,7 +149,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 chatRepo.addMessage(intro)
             }
             
-            ConsoleLogger.d("ChatViewModel", "init block running")
             val success = inferenceManager.initialise(buildRecentHistoryContext())
             _uiState.value = _uiState.value.copy(
                 isEngineReady = success,
@@ -261,7 +260,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 responseBuilder.append("\n[Error: ${e.message}]")
                 _streamingState.value = _streamingState.value.copy(streamingText = responseBuilder.toString())
             } else {
-                _streamingState.value = StreamingState(isGenerating = false, streamingText = "", streamingThinking = null, isThinking = false) 
                 throw e
             }
         } finally {
@@ -388,6 +386,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             // Log but never crash — this is best-effort
             Log.e("ChatViewModel", "Failed to write transcript", e)
         }
+    }
+
+    fun resetStreamingState() {
+        if (generationJob?.isActive == true) return
+        _streamingState.value = StreamingState()
     }
 
     fun injectReminderContext(reminder: String) {

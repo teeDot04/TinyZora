@@ -8,5 +8,7 @@ build
 app/src/main/cpp/llama.cpp/
 # Old jniLibs binaries
 app/src/main/jniLibs/
-*.zim.meta4
+
+# ZIM knowledge base files
 *.zim
+*.zim.meta4
