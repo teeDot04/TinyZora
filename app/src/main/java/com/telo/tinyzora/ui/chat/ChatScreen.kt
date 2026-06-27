@@ -375,7 +375,11 @@ fun ChatScreen(
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            // consolidateMemory call removed to prevent redundant Disk I/O
+            if (event == Lifecycle.Event.ON_RESUME) {
+                if (viewModel.streamingState.value.isGenerating) {
+                    viewModel.resetStreamingState()
+                }
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
