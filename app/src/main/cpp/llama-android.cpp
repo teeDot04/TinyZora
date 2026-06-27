@@ -146,6 +146,8 @@ Java_com_telo_tinyzora_core_inference_LlamaAndroid_sendMessageNative(
     const int n_max = n_ctx - n_pos;
 
     for (int i = 0; i < n_max && !g_stop.load(); i++) {
+        if (!g_ctx) break;
+        if (n_pos >= n_ctx - 1) { LOGI("KV cache full at pos %d, stopping.", n_pos); break; }
         llama_token token = llama_sampler_sample(sampler, g_ctx, -1);
         llama_sampler_accept(sampler, token);
 

@@ -388,6 +388,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun resetStreamingState() {
+        if (generationJob?.isActive == true) return
+        _streamingState.value = StreamingState()
+    }
+
     fun injectReminderContext(reminder: String) {
         viewModelScope.launch {
             val prompt = "The user just tapped a notification for this reminder: " +
