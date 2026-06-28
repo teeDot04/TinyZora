@@ -114,11 +114,12 @@ Java_com_telo_tinyzora_core_inference_LlamaAndroid_sendMessageNative(
         return;
     }
 
-    // Clear KV cache and reset position when context would overflow
+    // Reset position counter when context would overflow.
+    // Causal attention only looks at positions <= current, so old KV entries
+    // above the new prompt range are never attended to — no explicit clear needed.
     if (g_n_past + n_tokens >= n_ctx) {
-        LOGI("Context window full (n_past=%d + n_tokens=%d >= n_ctx=%d), clearing KV cache",
+        LOGI("Context window full (n_past=%d + n_tokens=%d >= n_ctx=%d), resetting position",
              g_n_past, n_tokens, n_ctx);
-        llama_kv_cache_clear(g_ctx);
         g_n_past = 0;
     }
 
