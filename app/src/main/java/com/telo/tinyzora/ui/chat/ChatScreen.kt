@@ -154,25 +154,25 @@ fun AttachmentPopup(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    FilledIconButton(onClick = { onCamera(); onDismiss() }, modifier = Modifier.size(48.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary)) {
+                    FilledIconButton(onClick = { onCamera(); onDismiss() }, modifier = Modifier.size(48.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
                         Icon(Icons.Rounded.PhotoCamera, contentDescription = "Camera", modifier = Modifier.size(22.dp))
                     }
                     Text("Camera", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp))
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    FilledIconButton(onClick = { onPhotos(); onDismiss() }, modifier = Modifier.size(48.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary)) {
+                    FilledIconButton(onClick = { onPhotos(); onDismiss() }, modifier = Modifier.size(48.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
                         Icon(Icons.Rounded.Photo, contentDescription = "Photos", modifier = Modifier.size(22.dp))
                     }
                     Text("Photos", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp))
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    FilledIconButton(onClick = { onMic(); onDismiss() }, modifier = Modifier.size(48.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary)) {
+                    FilledIconButton(onClick = { onMic(); onDismiss() }, modifier = Modifier.size(48.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
                         Icon(Icons.Rounded.Mic, contentDescription = "Microphone", modifier = Modifier.size(22.dp))
                     }
                     Text("Mic", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp))
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    FilledIconButton(onClick = { onFiles(); onDismiss() }, modifier = Modifier.size(48.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary)) {
+                    FilledIconButton(onClick = { onFiles(); onDismiss() }, modifier = Modifier.size(48.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
                         Icon(Icons.Rounded.Folder, contentDescription = "Files", modifier = Modifier.size(22.dp))
                     }
                     Text("Files", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp))
@@ -474,7 +474,7 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel(), onOpenSettings: () -> Uni
                                 message = message, 
                                 onDelete = onDeleteLambda,
                                 isPlayingAudio = currentlyPlayingId == message.id,
-                                onPlayAudio = { bytes: ByteArray -> playAudio(message.id, bytes) },
+                                onPlayAudio = { bytes -> playAudio(message.id, bytes) },
                                 onStopAudio = { stopAudio() }
                             )
                             Spacer(modifier = Modifier.height(8.dp))
@@ -552,6 +552,7 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel(), onOpenSettings: () -> Uni
                     )
                 }
 
+                // Clean "Ask anything" Input Pill
                 Surface(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                     shape = RoundedCornerShape(24.dp),
@@ -568,5 +569,201 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel(), onOpenSettings: () -> Uni
                                 IconButton(onClick = { isRecording = false; amplitudes = listOf() }) { Icon(Icons.Rounded.Close, contentDescription = "Cancel", tint = MaterialTheme.colorScheme.onSurface) }
                                 Box(modifier = Modifier.weight(1f)) { WaveformAnimator(amplitudes) }
                                 Text(elapsedSeconds, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 8.dp))
+                                IconButton(onClick = { isRecording = false }) { Icon(Icons.Rounded.ArrowUpward, contentDescription = "Attach", tint = if (attachPopupVisible) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary, modifier = Modifier.scale(1f))
+                        }
+
+                        if (isRecording) {
+                            Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(onClick = { isRecording = false; amplitudes = listOf() }) { Icon(Icons.Rounded.Close, contentDescription = "Cancel", tint = MaterialTheme.colorScheme.onSurface) }
+                                Box(modifier = Modifier.weight(1f)) { WaveformAnimator(amplitudes) }
+                                Text(elapsedSeconds, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 8.dp))
                                 IconButton(onClick = { isRecording = false }) { Icon(Icons.Rounded.ArrowUpward, contentDescription = "Send Audio", tint = MaterialTheme.colorScheme.primary) }
-      
+                            }
+                        } else {
+                            TextField(
+                                value = inputText, onValueChange = { inputText = it },
+                                modifier = Modifier.weight(1f).focusRequester(focusRequester),
+                                colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent, focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent),
+                                placeholder = { Text("Ask anything") }, maxLines = 4
+                            )
+                            val canSend = (inputText.text.trim().isNotEmpty() || attachedImage != null || attachedAudio != null || attachedDocumentText != null)
+                            SendStopButton(
+                                isGenerating = streamingState.isGenerating,
+                                canSend = canSend,
+                                onSend = {
+                                    val text = inputText.text.trim()
+                                    if (text.isNotEmpty() || attachedImage != null || attachedAudio != null || attachedDocumentText != null) {
+                                        viewModel.sendMessage(text)
+                                        inputText = TextFieldValue("")
+                                        attachPopupVisible = false
+                                    }
+                                },
+                                onStop = { viewModel.cancelGeneration() }
+                            )
+                        }
+                    }
+                }
+            }
+            
+            // Restored Floating Settings Button
+            IconButton(
+                onClick = onOpenSettings,
+                modifier = Modifier.align(Alignment.TopEnd).windowInsetsPadding(WindowInsets.statusBars).padding(16.dp).background(color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f), shape = CircleShape)
+            ) { Icon(imageVector = Icons.Default.Settings, contentDescription = "Settings", tint = MaterialTheme.colorScheme.primary) }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun MessageBubble(
+    message: ChatMessage, 
+    onDelete: () -> Unit = {},
+    isPlayingAudio: Boolean,
+    onPlayAudio: (ByteArray) -> Unit,
+    onStopAudio: () -> Unit
+) {
+    val isUser = message.role == "user"
+    val clipboardManager = LocalClipboardManager.current
+    val context = LocalContext.current
+    var showConfirm by remember { mutableStateOf(false) }
+
+    if (showConfirm) {
+        AlertDialog(
+            onDismissRequest = { showConfirm = false },
+            title = { Text("Delete message?") },
+            text = { Text("This action cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = { onDelete(); showConfirm = false }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showConfirm = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start) {
+        val bubbleShape = RoundedCornerShape(16.dp)
+        val backgroundColor = if (isUser) MaterialTheme.colorScheme.primary.copy(alpha = 0.8f) else Color.Transparent
+        val contentColor = if (isUser) Color.White else MaterialTheme.colorScheme.onBackground
+        val containerModifier = if (isUser) {
+            Modifier.widthIn(max = 280.dp).clip(bubbleShape).background(backgroundColor).padding(horizontal = 16.dp, vertical = 10.dp)
+        } else {
+            Modifier.fillMaxWidth().clip(bubbleShape).background(backgroundColor).padding(horizontal = 4.dp, vertical = 10.dp)
+        }
+
+        Box {
+            Box(modifier = containerModifier) {
+                Column {
+                    message.image?.let { img ->
+                        AsyncImage(
+                            model = img.uriString,
+                            contentDescription = "Attached Image",
+                            modifier = Modifier.fillMaxWidth().heightIn(max = 150.dp).clip(RoundedCornerShape(8.dp)).padding(bottom = 8.dp),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+                    message.documentName?.let { docName ->
+                        Row(modifier = Modifier.padding(bottom = 8.dp).background(color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f), shape = RoundedCornerShape(12.dp)).padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Rounded.PostAdd, contentDescription = "Document", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(text = docName, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                        }
+                    }
+                    message.audio?.let { audioData ->
+                        val bars = if (message.audioAmplitudes.isNotEmpty()) message.audioAmplitudes else List(25) { (0.1f + (it % 5) * 0.12f + (it % 3) * 0.05f).coerceIn(0.1f, 1f) }
+                        
+                        val infiniteTransition = rememberInfiniteTransition(label = "playback_transition")
+                        
+                        Row(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp, top = 4.dp).background(color = if (isUser) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f), shape = RoundedCornerShape(20.dp)).border(width = 1.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f), shape = RoundedCornerShape(20.dp)).padding(start = 6.dp, end = 12.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(
+                                onClick = {
+                                    if (isPlayingAudio) onStopAudio() else onPlayAudio(audioData.data)
+                                },
+                                modifier = Modifier.size(40.dp).background(color = if (isPlayingAudio) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary, shape = CircleShape)
+                            ) {
+                                Icon(imageVector = if (isPlayingAudio) Icons.Rounded.Stop else Icons.Default.PlayArrow, contentDescription = if (isPlayingAudio) "Stop" else "Play", tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(22.dp))
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+
+                            Row(modifier = Modifier.weight(1f).height(36.dp), horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
+                                bars.forEachIndexed { index, amp ->
+                                    key(index) {
+                                        val pulse by infiniteTransition.animateFloat(
+                                            initialValue = 0.7f, targetValue = 1.2f,
+                                            animationSpec = infiniteRepeatable(animation = tween(400 + index * 20, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse),
+                                            label = "bar_pulse_$index"
+                                        )
+                                        val targetHeight = if (isPlayingAudio) (amp * 28f + 4f).coerceIn(4f, 32f) * pulse else (amp * 28f + 4f).coerceIn(4f, 32f)
+                                        Box(modifier = Modifier.width(3.dp).height(targetHeight.dp.coerceIn(4.dp, 36.dp)).clip(RoundedCornerShape(1.5.dp)).background(if (isPlayingAudio && index < bars.size / 2) MaterialTheme.colorScheme.primary else contentColor.copy(alpha = 0.4f)))
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Box(modifier = Modifier.background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f), RoundedCornerShape(8.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) {
+                                Text("0:${(message.audioAmplitudes.size * 0.06f).toInt().toString().padStart(2, '0')}", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp))
+                            }
+                        }
+                    }
+
+                    message.thinking?.let { thinking ->
+                        MessageBodyThinking(thinkingText = thinking, inProgress = !message.isThinkingDone)
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                    if (message.text.isNotBlank()) {
+                        if (isUser) {
+                            Text(text = message.text, color = contentColor, style = MaterialTheme.typography.bodyLarge)
+                        } else {
+                            val renderItems = remember(message.text) { MessageParser.buildMergedLayoutBlocks(message.text) }
+                            Column {
+                                for (item in renderItems) {
+                                    when (item) {
+                                        is androidx.compose.ui.text.AnnotatedString -> Text(text = item, color = contentColor, style = MaterialTheme.typography.bodyLarge)
+                                        is Float -> Spacer(modifier = Modifier.height(item.dp))
+                                        is MessageBlock.CodeBlock -> CodeBlockCard(language = item.language, code = item.code)
+                                        is MessageBlock.LatexBlock -> LatexCard(formula = item.formula.trim())
+                                        is MessageBlock.TableBlock -> TableCard(headers = item.headers, rows = item.rows)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = if (isUser) 0.dp else 4.dp),
+                        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (isUser) {
+                            IconButton(onClick = { showConfirm = true }, modifier = Modifier.size(28.dp)) {
+                                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = contentColor.copy(alpha = 0.5f), modifier = Modifier.size(16.dp))
+                            }
+                            Spacer(modifier = Modifier.width(4.dp))
+                        } else {
+                            IconButton(onClick = { showConfirm = true }, modifier = Modifier.size(28.dp)) {
+                                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = contentColor.copy(alpha = 0.5f), modifier = Modifier.size(16.dp))
+                            }
+                            Spacer(modifier = Modifier.width(4.dp))
+                            IconButton(
+                                onClick = {
+                                    val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                        type = "text/plain"
+                                        putExtra(android.content.Intent.EXTRA_TEXT, message.text)
+                                    }
+                                    context.startActivity(android.content.Intent.createChooser(shareIntent, "Share Zora response via"))
+                                },
+                                modifier = Modifier.size(28.dp)
+                            ) { Icon(Icons.Default.Share, contentDescription = "Share", tint = contentColor.copy(alpha = 0.5f), modifier = Modifier.size(16.dp)) }
+                            Spacer(modifier = Modifier.width(4.dp))
+                        }
+                        IconButton(
+                            onClick = { clipboardManager.setText(buildAnnotatedString { append(message.text) }) },
+                            modifier = Modifier.size(28.dp)
+                        ) { Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = contentColor.copy(alpha = 0.5f), modifier = Modifier.size(16.dp)) }
+                    }
+                }
+            }
+        }
+    }
+}
