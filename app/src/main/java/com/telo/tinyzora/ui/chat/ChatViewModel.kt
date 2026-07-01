@@ -207,14 +207,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         try {
             val flowProxy = if (imgUri != null) {
                 inferenceManager.ensureModeIs("image", currentContext)
-                // inferenceManager.sendMessageWithImage(prompt, imgUri)
+                // TODO: Update InferenceManager.sendMessageWithImage to accept the history parameter.
+                // inferenceManager.sendMessageWithImage(prompt, imgUri, currentContext)
                 throw NotImplementedError("Update InferenceManager to accept Uri")
             } else if (aud != null) {
                 inferenceManager.ensureModeIs("audio", currentContext)
-                inferenceManager.sendMessageWithAudio(prompt, aud)
+                inferenceManager.sendMessageWithAudio(prompt, aud, currentContext)
             } else {
                 inferenceManager.ensureModeIs("text", currentContext)
-                inferenceManager.sendMessage(prompt)
+                inferenceManager.sendMessage(prompt, currentContext)
             }
 
             withContext(Dispatchers.Default) {
@@ -403,4 +404,3 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 }
-
