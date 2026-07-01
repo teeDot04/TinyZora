@@ -10,7 +10,7 @@ class LlamaAndroid {
         }
     }
 
-    @Suppress("unused")
+    @androidx.annotation.Keep
     private fun onTokenGenerated(token: String) {
         tokenCallback?.invoke(token)
     }
