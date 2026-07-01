@@ -2,7 +2,6 @@ package com.telo.tinyzora.ui.chat
 
 import android.Manifest
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
 import android.media.MediaPlayer
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -154,25 +153,25 @@ fun AttachmentPopup(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    FilledIconButton(onClick = { onCamera(); onDismiss() }, modifier = Modifier.size(48.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+                    FilledIconButton(onClick = { onCamera(); onDismiss() }, modifier = Modifier.size(48.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary)) {
                         Icon(Icons.Rounded.PhotoCamera, contentDescription = "Camera", modifier = Modifier.size(22.dp))
                     }
                     Text("Camera", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp))
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    FilledIconButton(onClick = { onPhotos(); onDismiss() }, modifier = Modifier.size(48.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
+                    FilledIconButton(onClick = { onPhotos(); onDismiss() }, modifier = Modifier.size(48.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary)) {
                         Icon(Icons.Rounded.Photo, contentDescription = "Photos", modifier = Modifier.size(22.dp))
                     }
                     Text("Photos", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp))
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    FilledIconButton(onClick = { onMic(); onDismiss() }, modifier = Modifier.size(48.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                    FilledIconButton(onClick = { onMic(); onDismiss() }, modifier = Modifier.size(48.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary)) {
                         Icon(Icons.Rounded.Mic, contentDescription = "Microphone", modifier = Modifier.size(22.dp))
                     }
                     Text("Mic", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp))
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    FilledIconButton(onClick = { onFiles(); onDismiss() }, modifier = Modifier.size(48.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+                    FilledIconButton(onClick = { onFiles(); onDismiss() }, modifier = Modifier.size(48.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary)) {
                         Icon(Icons.Rounded.Folder, contentDescription = "Files", modifier = Modifier.size(22.dp))
                     }
                     Text("Files", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp))
@@ -308,7 +307,7 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel(), onOpenSettings: () -> Uni
                 coroutineScope.launch(Dispatchers.IO) {
                     try {
                         val file = File(context.cacheDir, "camera_preview_${UUID.randomUUID()}.png")
-                        file.outputStream().use { out -> it.compress(Bitmap.CompressFormat.PNG, 100, out) }
+                        file.outputStream().use { out -> it.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out) }
                         withContext(Dispatchers.Main) {
                             viewModel.attachImage(Uri.fromFile(file))
                         }
@@ -474,7 +473,7 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel(), onOpenSettings: () -> Uni
                                 message = message, 
                                 onDelete = onDeleteLambda,
                                 isPlayingAudio = currentlyPlayingId == message.id,
-                                onPlayAudio = { playAudio(message.id, it) },
+                                onPlayAudio = { bytes -> playAudio(message.id, bytes) },
                                 onStopAudio = { stopAudio() }
                             )
                             Spacer(modifier = Modifier.height(8.dp))
@@ -560,7 +559,7 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel(), onOpenSettings: () -> Uni
                     Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         val clipRotation by animateFloatAsState(targetValue = if (attachPopupVisible) 45f else 0f, animationSpec = tween(250, easing = FastOutSlowInEasing), label = "clip_rotation")
                         IconButton(onClick = { attachPopupVisible = !attachPopupVisible }) {
-                            Icon(Icons.Default.AttachFile, contentDescription = "Attach", tint = if (attachPopupVisible) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary, modifier = Modifier.scale(1f))
+                            Icon(Icons.Default.AttachFile, contentDescription = "Attach", tint = if (attachPopupVisible) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                         }
 
                         if (isRecording) {
@@ -568,4 +567,33 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel(), onOpenSettings: () -> Uni
                                 IconButton(onClick = { isRecording = false; amplitudes = listOf() }) { Icon(Icons.Rounded.Close, contentDescription = "Cancel", tint = MaterialTheme.colorScheme.onSurface) }
                                 Box(modifier = Modifier.weight(1f)) { WaveformAnimator(amplitudes) }
                                 Text(elapsedSeconds, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 8.dp))
-                                IconButton(onClick = { isRecording = false }) { Icon(Icons.Rounded.ArrowUpward, contentDescription = "Send Audio", tint = MaterialTheme.colorScheme.pri
+                                IconButton(onClick = { isRecording = false }) { Icon(Icons.Rounded.ArrowUpward, contentDescription = "Send Audio", tint = MaterialTheme.colorScheme.primary) }
+                            }
+                        } else {
+                            Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                                TextField(
+                                    value = inputText,
+                                    onValueChange = { inputText = it },
+                                    modifier = Modifier.weight(1f).focusRequester(focusRequester),
+                                    placeholder = { Text("Ask Zora...") },
+                                    singleLine = true,
+                                    textStyle = MaterialTheme.typography.bodyLarge,
+                                    trailingIcon = {
+                                        Row {
+                                            IconButton(onClick = { attachPopupVisible = !attachPopupVisible }) { Icon(Icons.Default.AttachFile, contentDescription = "Attach") }
+                                            SendStopButton(isGenerating = streamingState.isGenerating, canSend = inputText.text.isNotBlank() || attachedImage != null || attachedAudio != null || attachedDocumentText != null, onSend = {
+                                                // Send message
+                                                viewModel.sendMessage(inputText.text)
+                                                inputText = TextFieldValue("")
+                                            }, onStop = { viewModel.cancelGeneration() })
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
