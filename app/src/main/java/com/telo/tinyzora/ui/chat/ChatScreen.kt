@@ -1,9 +1,10 @@
-
 package com.telo.tinyzora.ui.chat
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.media.MediaPlayer
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
@@ -57,6 +58,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.UUID
 import kotlin.math.roundToInt
 
 @Composable
@@ -237,16 +239,60 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel(), onOpenSettings: () -> Uni
     val lifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = rememberCoroutineScope()
 
+    // Screen-level Audio Player to prevent leaks and scroll state loss
+    var currentlyPlayingId by remember { mutableStateOf<String?>(null) }
+    var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
+    var tempAudioFile by remember { mutableStateOf<File?>(null) }
+
+    fun stopAudio() {
+        mediaPlayer?.stop()
+        mediaPlayer?.release()
+        mediaPlayer = null
+        currentlyPlayingId = null
+        tempAudioFile?.delete()
+        tempAudioFile = null
+    }
+
+    fun playAudio(id: String, audioBytes: ByteArray) {
+        stopAudio() // Ensure previous is fully cleaned up
+        currentlyPlayingId = id
+        coroutineScope.launch(Dispatchers.IO) {
+            try {
+                val file = File.createTempFile("audio_playback_", ".mp3", context.cacheDir)
+                file.writeBytes(audioBytes)
+                val player = MediaPlayer().apply {
+                    setDataSource(file.absolutePath)
+                    prepare()
+                    setOnCompletionListener {
+                        coroutineScope.launch(Dispatchers.Main) { stopAudio() }
+                    }
+                }
+                withContext(Dispatchers.Main) {
+                    tempAudioFile = file
+                    mediaPlayer = player
+                    player.start()
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) { stopAudio() }
+            }
+        }
+    }
+
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 if (viewModel.streamingState.value.isGenerating) {
                     viewModel.resetStreamingState()
                 }
+            } else if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_DESTROY) {
+                stopAudio()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        onDispose { 
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            stopAudio() 
+        }
     }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
@@ -256,8 +302,22 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel(), onOpenSettings: () -> Uni
 
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicturePreview(),
-        // Note: Needs URI mapping in a real flow, stubbed safely
-        onResult = { /* Camera logic requires FileProvider URI */ }
+        onResult = { bitmap -> 
+            bitmap?.let {
+                // Safely compress the bitmap to disk on IO thread and grab the URI
+                coroutineScope.launch(Dispatchers.IO) {
+                    try {
+                        val file = File(context.cacheDir, "camera_preview_${UUID.randomUUID()}.png")
+                        file.outputStream().use { out -> it.compress(Bitmap.CompressFormat.PNG, 100, out) }
+                        withContext(Dispatchers.Main) {
+                            viewModel.attachImage(Uri.fromFile(file))
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+            }
+        }
     )
 
     val filePickerLauncher = rememberLauncherForActivityResult(
@@ -279,14 +339,14 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel(), onOpenSettings: () -> Uni
                             delay(100)
                         }
                     }
-                    // Background thread execution to prevent ANRs
                     withContext(Dispatchers.IO) {
                         val ampHistory = mutableListOf<Float>()
                         val audioBytes = com.telo.tinyzora.util.AudioUtils.recordAudio(
                             onAmplitude = { amp ->
                                 ampHistory.add(amp)
                                 val window = ampHistory.takeLast(20)
-                                amplitudes = window
+                                // Fix Compose snapshot thread safety
+                                coroutineScope.launch(Dispatchers.Main) { amplitudes = window }
                             },
                             onMaxDurationReached = { isRecording = false; timerJob.cancel() },
                             stopSignal = { !isRecording }
@@ -320,14 +380,14 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel(), onOpenSettings: () -> Uni
                                 delay(100)
                             }
                         }
-                        // Background thread execution to prevent ANRs
                         withContext(Dispatchers.IO) {
                             val ampHistory = mutableListOf<Float>()
                             val audioBytes = com.telo.tinyzora.util.AudioUtils.recordAudio(
                                 onAmplitude = { amp ->
                                     ampHistory.add(amp)
                                     val window = ampHistory.takeLast(20)
-                                    amplitudes = window
+                                    // Fix Compose snapshot thread safety
+                                    coroutineScope.launch(Dispatchers.Main) { amplitudes = window }
                                 },
                                 onMaxDurationReached = { isRecording = false; timerJob.cancel() },
                                 stopSignal = { !isRecording }
@@ -359,17 +419,15 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel(), onOpenSettings: () -> Uni
                     .windowInsetsPadding(WindowInsets.statusBars)
                     .imePadding()
             ) {
-                // Safely group messages on a background thread to prevent jank
-                val groupedMessages by produceState(initialValue = emptyMap<String, List<ChatMessage>>(), key1 = messages) {
-                    value = withContext(Dispatchers.Default) {
-                        messages.groupBy { message ->
-                            val date = java.time.Instant.ofEpochMilli(message.timestamp).atZone(java.time.ZoneId.systemDefault()).toLocalDate()
-                            val today = java.time.LocalDate.now()
-                            when {
-                                date == today -> "Today"
-                                date == today.minusDays(1) -> "Yesterday"
-                                else -> date.format(java.time.format.DateTimeFormatter.ofPattern("MMMM d, yyyy"))
-                            }
+                // Clean inline grouping to prevent heavy produceState recalculations on every UI change
+                val groupedMessages = remember(messages) {
+                    messages.groupBy { message ->
+                        val date = java.time.Instant.ofEpochMilli(message.timestamp).atZone(java.time.ZoneId.systemDefault()).toLocalDate()
+                        val today = java.time.LocalDate.now()
+                        when {
+                            date == today -> "Today"
+                            date == today.minusDays(1) -> "Yesterday"
+                            else -> date.format(java.time.format.DateTimeFormatter.ofPattern("MMMM d, yyyy"))
                         }
                     }
                 }
@@ -399,10 +457,115 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel(), onOpenSettings: () -> Uni
                                     isThinkingDone = !streamingState.isThinking
                                 )
                             }
-                            MessageBubble(message = streamingMessage)
+                            MessageBubble(
+                                message = streamingMessage, 
+                                isPlayingAudio = false,
+                                onPlayAudio = {},
+                                onStopAudio = {}
+                            )
                             Spacer(modifier = Modifier.height(8.dp))
                         }
                     }
                     
                     groupedMessages.forEach { (dateStr, dateMessages) ->
                         items(dateMessages, key = { it.id }) { message ->
+                            val onDeleteLambda = remember(message.id) { { viewModel.deleteMessage(message.id) } }
+                            MessageBubble(
+                                message = message, 
+                                onDelete = onDeleteLambda,
+                                isPlayingAudio = currentlyPlayingId == message.id,
+                                onPlayAudio = { playAudio(message.id, it) },
+                                onStopAudio = { stopAudio() }
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
+                        // Header rendered as item to prevent reverseLayout inversion
+                        item(key = "header_$dateStr") {
+                            Box(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
+                                Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f)) {
+                                    Text(
+                                        text = dateStr,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Attachment previews
+                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                    if (attachedImage != null) {
+                        Box(modifier = Modifier.padding(end = 8.dp, top = 8.dp, bottom = 8.dp)) {
+                            AsyncImage(
+                                model = attachedImage,
+                                contentDescription = "Attached Image",
+                                modifier = Modifier.size(100.dp).clip(RoundedCornerShape(8.dp)),
+                                contentScale = ContentScale.Crop
+                            )
+                            IconButton(
+                                onClick = { viewModel.attachImage(null) },
+                                modifier = Modifier.align(Alignment.TopEnd).size(24.dp).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.7f), RoundedCornerShape(12.dp))
+                            ) { Icon(Icons.Default.Close, contentDescription = "Remove", modifier = Modifier.size(16.dp)) }
+                        }
+                    }
+                    if (attachedAudio != null) {
+                        Box(modifier = Modifier.padding(vertical = 8.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp)).padding(8.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.PlayArrow, contentDescription = "Audio")
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Audio Clip", style = MaterialTheme.typography.bodyMedium)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                IconButton(
+                                    onClick = { viewModel.attachAudio(null) },
+                                    modifier = Modifier.size(24.dp).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.7f), RoundedCornerShape(12.dp))
+                                ) { Icon(Icons.Default.Close, contentDescription = "Remove", modifier = Modifier.size(16.dp)) }
+                            }
+                        }
+                    }
+                    if (attachedDocumentText != null) {
+                        Box(modifier = Modifier.padding(vertical = 8.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp)).padding(horizontal = 12.dp, vertical = 8.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Rounded.PostAdd, contentDescription = "Document", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Document attached (${attachedDocumentText!!.split(" ").size} words)", style = MaterialTheme.typography.bodyMedium)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                IconButton(
+                                    onClick = { viewModel.clearDocument() },
+                                    modifier = Modifier.size(24.dp).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.7f), RoundedCornerShape(12.dp))
+                                ) { Icon(Icons.Default.Close, contentDescription = "Remove", modifier = Modifier.size(16.dp)) }
+                            }
+                        }
+                    }
+                }
+
+                Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp), contentAlignment = Alignment.BottomStart) {
+                    AttachmentPopup(
+                        visible = attachPopupVisible,
+                        onCamera = { cameraLauncher.launch(null) },
+                        onPhotos = { photoPickerLauncher.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                        onMic = { startRecording() },
+                        onFiles = { filePickerLauncher.launch(arrayOf("*/*")) },
+                        onDismiss = { attachPopupVisible = false }
+                    )
+                }
+
+                Surface(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    shape = RoundedCornerShape(24.dp),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                ) {
+                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        val clipRotation by animateFloatAsState(targetValue = if (attachPopupVisible) 45f else 0f, animationSpec = tween(250, easing = FastOutSlowInEasing), label = "clip_rotation")
+                        IconButton(onClick = { attachPopupVisible = !attachPopupVisible }) {
+                            Icon(Icons.Default.AttachFile, contentDescription = "Attach", tint = if (attachPopupVisible) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary, modifier = Modifier.scale(1f))
+                        }
+
+                        if (isRecording) {
+                            Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(onClick = { isRecording = false; amplitudes = listOf() }) { Icon(Icons.Rounded.Close, contentDescription = "Cancel", tint = MaterialTheme.colorScheme.onSurface) }
+                                Box(modifier = Modifier.weight(1f)) { WaveformAnimator(amplitudes) }
+                                Text(elapsedSeconds, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 8.dp))
+                                IconButton(onClick = { isRecording = false }) { Icon(Icons.Rounded.ArrowUpward, contentDescription = "Send Audio", tint = MaterialTheme.colorScheme.pri
