@@ -1,8 +1,6 @@
 package com.telo.tinyzora.core.chat
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import com.telo.tinyzora.ui.chat.AudioHolder
 import com.telo.tinyzora.ui.chat.ChatMessage
 import kotlinx.coroutines.Dispatchers
@@ -11,7 +9,6 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
-import java.io.FileOutputStream
 import java.util.UUID
 
 @Serializable
@@ -40,9 +37,8 @@ class ChatRepository(private val context: Context) {
         try {
             val entities: List<ChatMessageEntity> = jsonFormat.decodeFromString(chatFile.readText())
             entities.map { entity ->
-                val bitmap = entity.bitmapPath?.let { path ->
-                    val file = File(path)
-                    if (file.exists()) BitmapFactory.decodeFile(file.absolutePath) else null
+                val imageHolder = entity.bitmapPath?.let { uriString ->
+                    com.telo.tinyzora.ui.chat.ImageHolder(uriString)
                 }
                 
                 val audio = entity.audioPath?.let { path ->
@@ -56,7 +52,7 @@ class ChatRepository(private val context: Context) {
                     text = entity.text,
                     thinking = entity.thinking,
                     isThinkingDone = entity.thinking != null,
-                    bitmap = bitmap,
+                    image = imageHolder,
                     audio = audio,
                     documentName = entity.documentName,
                     timestamp = entity.timestamp
@@ -79,13 +75,7 @@ class ChatRepository(private val context: Context) {
         } else emptyList()
         
         // Save media to disk if exists
-        val savedBitmapPath = message.bitmap?.let { bmp ->
-            val file = File(mediaDir, "img_${UUID.randomUUID()}.png")
-            FileOutputStream(file).use { out ->
-                bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
-            }
-            file.absolutePath
-        }
+        val savedBitmapPath = message.image?.uriString
         
         val savedAudioPath = message.audio?.let { holder ->
             val file = File(mediaDir, "aud_${UUID.randomUUID()}.wav")
