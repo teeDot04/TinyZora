@@ -10,7 +10,7 @@
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
-static llama_model*   g_model   = nullptr;
+static llama_model* g_model   = nullptr;
 static llama_context* g_ctx     = nullptr;
 static std::atomic<bool> g_stop{false};
 static std::atomic<bool> g_generation_in_progress{false};
@@ -34,15 +34,13 @@ static void llama_log_callback_android(ggml_log_level level, const char* text, v
 extern "C" {
 
 JNIEXPORT jboolean JNICALL
-Java_com_telo_tinyzora_core_inference_LlamaAndroid_isModelLoaded(
-        JNIEnv*, jobject) {
+Java_com_telo_tinyzora_core_inference_LlamaAndroid_isModelLoaded(JNIEnv*, jobject) {
     return (g_model != nullptr && g_ctx != nullptr) ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jboolean JNICALL
 Java_com_telo_tinyzora_core_inference_LlamaAndroid_loadModel(
-        JNIEnv* env, jobject,
-        jstring model_path, jint n_ctx, jint n_threads,
+        JNIEnv* env, jobject, jstring model_path, jint n_ctx, jint n_threads,
         jint top_k, jfloat top_p, jfloat temp) {
 
     if (g_ctx)   { llama_free(g_ctx);         g_ctx   = nullptr; }
@@ -58,6 +56,10 @@ Java_com_telo_tinyzora_core_inference_LlamaAndroid_loadModel(
 
     auto mparams         = llama_model_default_params();
     mparams.n_gpu_layers = 0;
+    
+    // SURVIVAL FIX 1: Enforce MMAP to map file from storage instead of loading into RAM
+    mparams.use_mmap = true;
+    mparams.use_mlock = false;
 
     const char* path = env->GetStringUTFChars(model_path, nullptr);
     g_model = llama_model_load_from_file(path, mparams);
@@ -72,6 +74,9 @@ Java_com_telo_tinyzora_core_inference_LlamaAndroid_loadModel(
     cparams.n_ctx           = (uint32_t)n_ctx;
     cparams.n_threads       = (uint32_t)n_threads;
     cparams.n_threads_batch = (uint32_t)n_threads;
+    
+    // SURVIVAL FIX 2: Restrict upfront scratch buffer allocation during initialization
+    cparams.n_batch         = 256; 
 
     g_ctx = llama_init_from_model(g_model, cparams);
     if (!g_ctx) {
@@ -92,7 +97,7 @@ Java_com_telo_tinyzora_core_inference_LlamaAndroid_sendMessageNative(
 
     if (!g_model || !g_ctx) { LOGE("Model not loaded"); return; }
     if (g_generation_in_progress.exchange(true)) { LOGE("Already generating"); return; }
-
+    
     g_stop.store(false);
 
     const char* raw = env->GetStringUTFChars(prompt, nullptr);
@@ -108,15 +113,13 @@ Java_com_telo_tinyzora_core_inference_LlamaAndroid_sendMessageNative(
         g_generation_in_progress.store(false);
         return;
     }
+
     if (n_tokens >= n_ctx) {
         LOGE("Prompt too long: %d >= %d", n_tokens, n_ctx);
         g_generation_in_progress.store(false);
         return;
     }
 
-    // Reset position counter when context would overflow.
-    // Causal attention only looks at positions <= current, so old KV entries
-    // above the new prompt range are never attended to — no explicit clear needed.
     if (g_n_past + n_tokens >= n_ctx) {
         LOGI("Context window full (n_past=%d + n_tokens=%d >= n_ctx=%d), resetting position",
              g_n_past, n_tokens, n_ctx);
@@ -136,6 +139,14 @@ Java_com_telo_tinyzora_core_inference_LlamaAndroid_sendMessageNative(
         int chunk = batch_end - batch_start;
 
         llama_batch batch = llama_batch_init(chunk, 0, 1);
+        
+        // SURVIVAL FIX 3A: Safety check against silent OOM
+        if (batch.token == nullptr || batch.pos == nullptr) {
+            LOGE("Fatal: Out of memory for prompt batch allocation");
+            g_generation_in_progress.store(false);
+            return;
+        }
+
         batch.n_tokens = chunk;
         for (int i = 0; i < chunk; i++) {
             batch.token[i]     = tokens[batch_start + i];
@@ -193,6 +204,13 @@ Java_com_telo_tinyzora_core_inference_LlamaAndroid_sendMessageNative(
         if (env->ExceptionCheck()) { env->ExceptionClear(); break; }
 
         llama_batch next = llama_batch_init(1, 0, 1);
+        
+        // SURVIVAL FIX 3B: Safety check for generation batch
+        if (next.token == nullptr || next.pos == nullptr) {
+            LOGE("Fatal: Out of memory for generation batch");
+            break;
+        }
+
         next.n_tokens     = 1;
         next.token[0]     = token;
         next.pos[0]       = n_past++;
@@ -210,23 +228,19 @@ Java_com_telo_tinyzora_core_inference_LlamaAndroid_sendMessageNative(
         if (tokens_generated % 10 == 0) LOGI("Generated %d tokens", tokens_generated);
     }
 
-    // Persist n_past for next call — this is how conversation continuity works
     g_n_past = n_past;
-
     llama_sampler_free(sampler);
     g_generation_in_progress.store(false);
     LOGI("Generation complete: %d tokens, n_past now=%d", tokens_generated, g_n_past);
 }
 
 JNIEXPORT void JNICALL
-Java_com_telo_tinyzora_core_inference_LlamaAndroid_stopGeneration(
-        JNIEnv*, jobject) {
+Java_com_telo_tinyzora_core_inference_LlamaAndroid_stopGeneration(JNIEnv*, jobject) {
     g_stop.store(true);
 }
 
 JNIEXPORT void JNICALL
-Java_com_telo_tinyzora_core_inference_LlamaAndroid_unloadModel(
-        JNIEnv*, jobject) {
+Java_com_telo_tinyzora_core_inference_LlamaAndroid_unloadModel(JNIEnv*, jobject) {
     g_stop.store(true);
     g_n_past = 0;
     if (g_ctx)   { llama_free(g_ctx);        g_ctx   = nullptr; }
@@ -235,4 +249,4 @@ Java_com_telo_tinyzora_core_inference_LlamaAndroid_unloadModel(
     LOGI("Model unloaded");
 }
 
-}
+} // extern "C"
