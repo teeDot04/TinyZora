@@ -2,6 +2,7 @@ package com.telo.tinyzora.ui.chat
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.media.MediaPlayer
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -52,6 +53,7 @@ import com.telo.tinyzora.ui.chat.components.CodeBlockCard
 import com.telo.tinyzora.ui.chat.components.MessageBodyThinking
 import com.telo.tinyzora.ui.chat.components.LatexCard
 import com.telo.tinyzora.ui.chat.components.TableCard
+import com.telo.tinyzora.ui.chat.components.MessageBubble
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -307,7 +309,7 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel(), onOpenSettings: () -> Uni
                 coroutineScope.launch(Dispatchers.IO) {
                     try {
                         val file = File(context.cacheDir, "camera_preview_${UUID.randomUUID()}.png")
-                        file.outputStream().use { out -> it.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out) }
+                        file.outputStream().use { out -> it.compress(Bitmap.CompressFormat.PNG, 100, out) }
                         withContext(Dispatchers.Main) {
                             viewModel.attachImage(Uri.fromFile(file))
                         }
@@ -473,7 +475,7 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel(), onOpenSettings: () -> Uni
                                 message = message, 
                                 onDelete = onDeleteLambda,
                                 isPlayingAudio = currentlyPlayingId == message.id,
-                                onPlayAudio = { bytes -> playAudio(message.id, bytes) },
+                                onPlayAudio = { bytes: ByteArray -> playAudio(message.id, bytes) },
                                 onStopAudio = { stopAudio() }
                             )
                             Spacer(modifier = Modifier.height(8.dp))
