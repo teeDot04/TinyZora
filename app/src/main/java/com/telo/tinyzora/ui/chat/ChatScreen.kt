@@ -53,7 +53,6 @@ import com.telo.tinyzora.ui.chat.components.CodeBlockCard
 import com.telo.tinyzora.ui.chat.components.MessageBodyThinking
 import com.telo.tinyzora.ui.chat.components.LatexCard
 import com.telo.tinyzora.ui.chat.components.TableCard
-import com.telo.tinyzora.ui.chat.components.MessageBubble
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -561,7 +560,7 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel(), onOpenSettings: () -> Uni
                     Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         val clipRotation by animateFloatAsState(targetValue = if (attachPopupVisible) 45f else 0f, animationSpec = tween(250, easing = FastOutSlowInEasing), label = "clip_rotation")
                         IconButton(onClick = { attachPopupVisible = !attachPopupVisible }) {
-                            Icon(Icons.Default.AttachFile, contentDescription = "Attach", tint = if (attachPopupVisible) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                            Icon(Icons.Default.AttachFile, contentDescription = "Attach", tint = if (attachPopupVisible) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary, modifier = Modifier.scale(1f))
                         }
 
                         if (isRecording) {
@@ -570,32 +569,4 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel(), onOpenSettings: () -> Uni
                                 Box(modifier = Modifier.weight(1f)) { WaveformAnimator(amplitudes) }
                                 Text(elapsedSeconds, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 8.dp))
                                 IconButton(onClick = { isRecording = false }) { Icon(Icons.Rounded.ArrowUpward, contentDescription = "Send Audio", tint = MaterialTheme.colorScheme.primary) }
-                            }
-                        } else {
-                            Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                                TextField(
-                                    value = inputText,
-                                    onValueChange = { inputText = it },
-                                    modifier = Modifier.weight(1f).focusRequester(focusRequester),
-                                    placeholder = { Text("Ask Zora...") },
-                                    singleLine = true,
-                                    textStyle = MaterialTheme.typography.bodyLarge,
-                                    trailingIcon = {
-                                        Row {
-                                            IconButton(onClick = { attachPopupVisible = !attachPopupVisible }) { Icon(Icons.Default.AttachFile, contentDescription = "Attach") }
-                                            SendStopButton(isGenerating = streamingState.isGenerating, canSend = inputText.text.isNotBlank() || attachedImage != null || attachedAudio != null || attachedDocumentText != null, onSend = {
-                                                // Send message
-                                                viewModel.sendMessage(inputText.text)
-                                                inputText = TextFieldValue("")
-                                            }, onStop = { viewModel.cancelGeneration() })
-                                        }
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
+      
