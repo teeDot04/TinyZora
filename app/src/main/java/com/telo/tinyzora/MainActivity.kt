@@ -6,6 +6,9 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.background
 import androidx.compose.material3.MaterialTheme
@@ -17,8 +20,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.lifecycle.ViewModelProvider
 import com.telo.tinyzora.ui.chat.ChatScreen
 import com.telo.tinyzora.ui.chat.ChatViewModel
 import com.telo.tinyzora.ui.settings.SettingsScreen
@@ -38,9 +41,14 @@ import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.MutableSharedFlow
 import java.io.File
+import androidx.activity.OnNewIntentListener
 
 class MainActivity : ComponentActivity() {
+
+    // Conflated flow ensures the latest intent is always available without silent drops
+    val reminderEvents = MutableSharedFlow<Intent>(replay = 1, extraBufferCapacity = 1)
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -70,9 +78,28 @@ class MainActivity : ComponentActivity() {
                 val navController = rememberNavController()
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentRoute = navBackStackEntry?.destination?.route?.substringBefore("?")
-
-                val userPrefs = remember { UserPreferences(this@MainActivity) }
+                
+                val context = LocalContext.current
+                val appCtx = context.applicationContext
+                val activity = context as? MainActivity
+                
+                val userPrefs = remember { UserPreferences(appCtx) }
                 val startDest = if (userPrefs.isPinSet()) "/lockscreen" else "/chat"
+                
+                // Extract cold start data ONCE without mutating the original Intent
+                val coldStartReminder = remember { 
+                    intent?.getStringExtra("REMINDER_CONTEXT") 
+                }
+
+                // Handle hot start intents at the NavHost level to navigate if needed
+                LaunchedEffect(Unit) {
+                    activity?.reminderEvents?.collect { newIntent ->
+                        val reminderContext = newIntent.getStringExtra("REMINDER_CONTEXT") ?: return@collect
+                        if (currentRoute != "/chat") {
+                            navController.navigate("/chat?reminderContext=$reminderContext")
+                        }
+                    }
+                }
 
                 NavHost(
                     navController = navController,
@@ -85,7 +112,7 @@ class MainActivity : ComponentActivity() {
                 ) {
                     composable("/splash") {
                         val scale = remember { androidx.compose.animation.core.Animatable(0.5f) }
-                        androidx.compose.runtime.LaunchedEffect(Unit) {
+                        LaunchedEffect(Unit) {
                             scale.animateTo(
                                 targetValue = 1.0f,
                                 animationSpec = androidx.compose.animation.core.spring(
@@ -116,22 +143,28 @@ class MainActivity : ComponentActivity() {
                     composable("/lockscreen") {
                         LockScreen(
                             onUnlock = {
-                                navController.navigate("/chat") {
+                                // Pass cold start reminder when unlocking
+                                val targetRoute = if (coldStartReminder != null) {
+                                    "/chat?reminderContext=$coldStartReminder"
+                                } else {
+                                    "/chat"
+                                }
+                                navController.navigate(targetRoute) {
                                     popUpTo("/lockscreen") { inclusive = true }
                                 }
                             },
                             onResetComplete = {
                                 kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                                    val context = this@MainActivity
-                                    com.telo.tinyzora.core.chat.ChatRepository(context).getChatHistoryFile().delete()
-                                    File(context.filesDir, "memory.json").delete()
-                                    com.telo.tinyzora.core.security.UserPreferences(context).clearPin()
+                                    com.telo.tinyzora.core.chat.ChatRepository(appCtx).getChatHistoryFile().delete()
+                                    File(appCtx.filesDir, "memory.json").delete()
+                                    com.telo.tinyzora.core.security.UserPreferences(appCtx).clearPin()
 
                                     withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                        val pm = context.packageManager
-                                        val intent = pm.getLaunchIntentForPackage(context.packageName)
-                                        val mainIntent = Intent.makeRestartActivityTask(intent?.component)
-                                        context.startActivity(mainIntent)
+                                        val pm = appCtx.packageManager
+                                        val launchIntent = pm.getLaunchIntentForPackage(appCtx.packageName)
+                                        val mainIntent = Intent.makeRestartActivityTask(launchIntent?.component)
+                                        mainIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        appCtx.startActivity(mainIntent)
                                         Runtime.getRuntime().exit(0)
                                     }
                                 }
@@ -139,8 +172,34 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    composable("/chat") {
-                        val viewModel: ChatViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+                    composable(
+                        route = "/chat?reminderContext={reminderContext}",
+                        arguments = listOf(navArgument("reminderContext") { nullable = true; defaultValue = null })
+                    ) { backStackEntry ->
+                        val viewModel: ChatViewModel = viewModel()
+                        val reminderContext = backStackEntry.arguments?.getString("reminderContext")
+                        
+                        // Track handled context to prevent duplicate injections on re-entry
+                        var handledContext by remember { mutableStateOf<String?>(null) }
+                        
+                        LaunchedEffect(reminderContext) {
+                            if (!reminderContext.isNullOrBlank() && handledContext != reminderContext) {
+                                viewModel.injectReminderContext(reminderContext)
+                                handledContext = reminderContext
+                            }
+                        }
+
+                        // Handle hot start intents when already on this screen
+                        DisposableEffect(Unit) {
+                            val listener = OnNewIntentListener { intent ->
+                                intent.getStringExtra("REMINDER_CONTEXT")?.let {
+                                    viewModel.injectReminderContext(it)
+                                }
+                            }
+                            activity?.addOnNewIntentListener(listener)
+                            onDispose { activity?.removeOnNewIntentListener(listener) }
+                        }
+
                         ChatScreen(
                             viewModel = viewModel,
                             onOpenSettings = {
@@ -150,7 +209,7 @@ class MainActivity : ComponentActivity() {
                     }
 
                     composable("/settings") {
-                        val chatRepo = com.telo.tinyzora.core.chat.ChatRepository(this@MainActivity)
+                        val chatRepo = com.telo.tinyzora.core.chat.ChatRepository(appCtx)
                         SettingsScreen(
                             chatHistoryFile = chatRepo.getChatHistoryFile(),
                             onBack = { navController.popBackStack() },
@@ -160,7 +219,7 @@ class MainActivity : ComponentActivity() {
                     }
 
                     composable("/memory") {
-                        com.telo.tinyzora.ui.memory.MemoryScreen(
+                        MemoryScreen(
                             onBack = { navController.popBackStack() }
                         )
                     }
@@ -173,20 +232,13 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-
-        handleIntent(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        handleIntent(intent)
-    }
-
-    private fun handleIntent(intent: Intent?) {
-        val reminderContext = intent?.getStringExtra("REMINDER_CONTEXT")
-        if (reminderContext != null) {
-            val viewModel: ChatViewModel = ViewModelProvider(this)[ChatViewModel::class.java]
-            viewModel.injectReminderContext(reminderContext)
-        }
+        setIntent(intent)
+        
+        // Emit to the conflated flow. No silent drops, survives UI lifecycle.
+        reminderEvents.tryEmit(intent)
     }
 }
