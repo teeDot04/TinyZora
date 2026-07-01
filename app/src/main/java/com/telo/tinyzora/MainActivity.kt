@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.LaunchedEffect
@@ -43,7 +44,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableSharedFlow
 import java.io.File
-import androidx.activity.OnNewIntentListener
+import androidx.core.util.Consumer
 
 class MainActivity : ComponentActivity() {
 
@@ -191,7 +192,7 @@ class MainActivity : ComponentActivity() {
 
                         // Handle hot start intents when already on this screen
                         DisposableEffect(Unit) {
-                            val listener = OnNewIntentListener { intent ->
+                            val listener = Consumer<android.content.Intent> { intent ->
                                 intent.getStringExtra("REMINDER_CONTEXT")?.let {
                                     viewModel.injectReminderContext(it)
                                 }
