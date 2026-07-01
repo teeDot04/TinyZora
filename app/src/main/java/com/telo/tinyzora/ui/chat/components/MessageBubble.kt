@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.draw.clip
 import com.telo.tinyzora.ui.chat.ChatMessage
 
 @OptIn(ExperimentalMaterial3Api::class)
