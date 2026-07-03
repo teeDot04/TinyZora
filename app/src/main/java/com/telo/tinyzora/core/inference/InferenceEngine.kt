@@ -32,9 +32,18 @@ interface InferenceEngine {
 }
 
 val State.isUninterruptible
-    get() = this is State.Initializing || this is State.LoadingModel || this is State.UnloadingModel || this is State.Benchmarking || this is State.ProcessingSystemPrompt || this is State.ProcessingUserPrompt
+    get() = this is State.Initializing || 
+            this is State.LoadingModel || 
+            this is State.UnloadingModel || 
+            this is State.Benchmarking || 
+            this is State.ProcessingSystemPrompt || 
+            this is State.ProcessingUserPrompt
 
 val State.isModelLoaded: Boolean
-    get() = this is State.ModelReady || this is State.Benchmarking || this is State.ProcessingSystemPrompt || this is State.ProcessingUserPrompt || this is State.Generating
+    get() = this is State.ModelReady || 
+            this is State.Benchmarking || 
+            this is State.ProcessingSystemPrompt || 
+            this is State.ProcessingUserPrompt || 
+            this is State.Generating
 
 class UnsupportedArchitectureException : Exception()
