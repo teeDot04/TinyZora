@@ -17,16 +17,12 @@ endif()
 set(LLAMA_SRC ${CMAKE_CURRENT_LIST_DIR}/../../../../llama.cpp)
 add_subdirectory(${LLAMA_SRC} build-llama)
 
+# Automatically include all .cpp files in common/ directory
+file(GLOB COMMON_SOURCES "${LLAMA_SRC}/common/*.cpp")
+
 add_library(${CMAKE_PROJECT_NAME} SHARED
     ai_chat.cpp
-    ${LLAMA_SRC}/common/common.cpp
-    ${LLAMA_SRC}/common/sampling.cpp
-    ${LLAMA_SRC}/common/chat.cpp
-    ${LLAMA_SRC}/common/log.cpp
-    ${LLAMA_SRC}/common/console.cpp
-    ${LLAMA_SRC}/common/ngram-cache.cpp
-    ${LLAMA_SRC}/common/unicode.cpp
-    ${LLAMA_SRC}/common/unicode-data.cpp
+    ${COMMON_SOURCES}
 )
 
 target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
