@@ -1,4 +1,4 @@
-@ckage com.telo.tinyzora.core.inference
+package com.telo.tinyzora.core.inference
 
 import android.content.Context
 import android.util.Log
