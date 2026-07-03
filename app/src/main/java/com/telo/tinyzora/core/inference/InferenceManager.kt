@@ -36,7 +36,7 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val userPrefs = com.telo.tinyzora.core.security.UserPreferences(context)
     
-    // Get the singleton instance of the new InferenceEngine
+    // Use the NEW clean InferenceEngine instead of old LlamaAndroid
     private val engine: InferenceEngine = InferenceEngineImpl.getInstance(context)
     
     private val sharedPrefs: SharedPreferences =
@@ -62,7 +62,7 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
                     return@withLock false
                 }
 
-                // Load model and set system prompt using the new Engine
+                // Load model using NEW Engine
                 engine.loadModel(modelPath)
                 engine.setSystemPrompt(systemPrompt)
 
@@ -89,7 +89,7 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
                 sharedPrefs.registerOnSharedPreferenceChangeListener(modelPathListener)
                 
                 isInitialized = true
-                ConsoleLogger.d(TAG, "InferenceManager initialized with new Engine")
+                ConsoleLogger.d(TAG, "InferenceManager initialized with NEW Engine")
                 true
             } catch (e: Exception) {
                 ConsoleLogger.e(TAG, "Failed to initialize: ${e.message}", e)
@@ -104,8 +104,6 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
 
     suspend fun resetConversation(chatContext: String? = null) {
         mutex.withLock {
-            // The new Engine maintains history in C++. 
-            // A true reset would require unloading/reloading the model.
             systemPrompt = memoryStore.buildSystemPrompt()
             ConsoleLogger.d(TAG, "Conversation state refreshed.")
         }
@@ -115,14 +113,13 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
 
     fun sendMessage(text: String, contextHistory: String): Flow<InferenceResult> = channelFlow {
         mutex.withLock {
-            // The new Engine maintains history in C++. We just pass the new user message.
             streamText(text)
         }
     }.flowOn(Dispatchers.IO)
 
     fun sendMessageWithImage(text: String, imageUri: Uri, contextHistory: String): Flow<InferenceResult> = channelFlow {
         mutex.withLock {
-            send(InferenceResult("Image support is coming soon!", true))
+            send(InferenceResult("Image support coming soon!", true))
         }
     }.flowOn(Dispatchers.IO)
 
@@ -142,7 +139,6 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
 
     private suspend fun generateOnceUnlocked(prompt: String): String {
         val sb = StringBuilder()
-        // Use the new Flow-based API
         engine.sendUserPrompt(prompt).collect { token ->
             sb.append(token)
         }
@@ -183,7 +179,6 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
         val responseBuilder = StringBuilder()
         var inThink = false
 
-        // Collect tokens from the new Flow-based API
         engine.sendUserPrompt(userMessage).collect { token ->
             var remaining = token
             while (remaining.isNotEmpty()) {
