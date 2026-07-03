@@ -16,7 +16,7 @@ jobs:
 
     # Clone llama.cpp into the project root so CMakeLists.txt can find it
     - name: Clone llama.cpp
-      run: git clone https://github.com/ggerganov/llama.cpp.git
+      run: git clone --recurse-submodules https://github.com/ggerganov/llama.cpp.git
 
     - name: Set up JDK 17
       uses: actions/setup-java@v4
