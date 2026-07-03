@@ -17,7 +17,6 @@ endif()
 set(LLAMA_SRC ${CMAKE_CURRENT_LIST_DIR}/../../../../llama.cpp)
 add_subdirectory(${LLAMA_SRC} build-llama)
 
-# Build the common sources into our library
 add_library(${CMAKE_PROJECT_NAME} SHARED
     ai_chat.cpp
     ${LLAMA_SRC}/common/common.cpp
@@ -25,8 +24,6 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
     ${LLAMA_SRC}/common/chat.cpp
     ${LLAMA_SRC}/common/log.cpp
     ${LLAMA_SRC}/common/console.cpp
-    ${LLAMA_SRC}/common/grammar-parser.cpp
-    ${LLAMA_SRC}/common/json-schema-to-grammar.cpp
     ${LLAMA_SRC}/common/ngram-cache.cpp
     ${LLAMA_SRC}/common/unicode.cpp
     ${LLAMA_SRC}/common/unicode-data.cpp
