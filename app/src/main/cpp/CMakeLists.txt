@@ -17,16 +17,24 @@ endif()
 set(LLAMA_SRC ${CMAKE_CURRENT_LIST_DIR}/../../../../llama.cpp)
 add_subdirectory(${LLAMA_SRC} build-llama)
 
-# Minimal common sources only
+# Include all common sources EXCEPT HTTP/download related files
+set(COMMON_EXCLUDES
+    ${LLAMA_SRC}/common/download.cpp
+    ${LLAMA_SRC}/common/hf-cache.cpp
+    ${LLAMA_SRC}/common/arg.cpp
+    ${LLAMA_SRC}/common/fit.cpp
+    ${LLAMA_SRC}/common/preset.cpp
+    ${LLAMA_SRC}/common/speculative.cpp
+    ${LLAMA_SRC}/common/imatrix-loader.cpp
+    ${LLAMA_SRC}/common/llguidance.cpp
+)
+
+file(GLOB ALL_COMMON_SOURCES "${LLAMA_SRC}/common/*.cpp")
+list(REMOVE_ITEM ALL_COMMON_SOURCES ${COMMON_EXCLUDES})
+
 add_library(${CMAKE_PROJECT_NAME} SHARED
     ai_chat.cpp
-    ${LLAMA_SRC}/common/common.cpp
-    ${LLAMA_SRC}/common/sampling.cpp
-    ${LLAMA_SRC}/common/chat.cpp
-    ${LLAMA_SRC}/common/log.cpp
-    ${LLAMA_SRC}/common/console.cpp
-    ${LLAMA_SRC}/common/ngram-cache.cpp
-    ${LLAMA_SRC}/common/unicode.cpp
+    ${ALL_COMMON_SOURCES}
 )
 
 target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
