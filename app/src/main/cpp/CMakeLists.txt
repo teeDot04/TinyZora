@@ -2,7 +2,9 @@ cmake_minimum_required(VERSION 3.22.1)
 project("ai-chat" VERSION 1.0.0 LANGUAGES C CXX)
 
 set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED true)
 set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED true)
 
 if(DEFINED ANDROID_ABI)
     if(ANDROID_ABI STREQUAL "arm64-v8a")
@@ -17,24 +19,9 @@ endif()
 set(LLAMA_SRC ${CMAKE_CURRENT_LIST_DIR}/../../../../llama.cpp)
 add_subdirectory(${LLAMA_SRC} build-llama)
 
-# Include all common sources EXCEPT HTTP/download related files
-set(COMMON_EXCLUDES
-    ${LLAMA_SRC}/common/download.cpp
-    ${LLAMA_SRC}/common/hf-cache.cpp
-    ${LLAMA_SRC}/common/arg.cpp
-    ${LLAMA_SRC}/common/fit.cpp
-    ${LLAMA_SRC}/common/preset.cpp
-    ${LLAMA_SRC}/common/speculative.cpp
-    ${LLAMA_SRC}/common/imatrix-loader.cpp
-    ${LLAMA_SRC}/common/llguidance.cpp
-)
-
-file(GLOB ALL_COMMON_SOURCES "${LLAMA_SRC}/common/*.cpp")
-list(REMOVE_ITEM ALL_COMMON_SOURCES ${COMMON_EXCLUDES})
-
+# Only compile our ai_chat.cpp - llama-common is built automatically
 add_library(${CMAKE_PROJECT_NAME} SHARED
     ai_chat.cpp
-    ${ALL_COMMON_SOURCES}
 )
 
 target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
@@ -49,12 +36,12 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     ${LLAMA_SRC}/include
     ${LLAMA_SRC}/ggml/include
     ${LLAMA_SRC}/ggml/src
-    ${LLAMA_SRC}/vendor
-    ${LLAMA_SRC}/vendor/nlohmann/json/single_include
 )
 
+# Link against llama AND llama-common (both are built by add_subdirectory)
 target_link_libraries(${CMAKE_PROJECT_NAME}
     llama
+    llama-common
     android
     log
 )
