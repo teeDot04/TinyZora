@@ -6,10 +6,23 @@
 #include <unistd.h>
 #include <sampling.h>
 
-#include "logging.h"
 #include "chat.h"
 #include "common.h"
 #include "llama.h"
+
+// Custom log macros to bypass missing logging.h
+#define LOGi(...) __android_log_print(ANDROID_LOG_INFO, "ai-chat", __VA_ARGS__)
+#define LOGd(...) __android_log_print(ANDROID_LOG_DEBUG, "ai-chat", __VA_ARGS__)
+#define LOGe(...) __android_log_print(ANDROID_LOG_ERROR, "ai-chat", __VA_ARGS__)
+#define LOGw(...) __android_log_print(ANDROID_LOG_WARN, "ai-chat", __VA_ARGS__)
+#define LOGv(...) __android_log_print(ANDROID_LOG_VERBOSE, "ai-chat", __VA_ARGS__)
+
+static void aichat_android_log_callback(ggml_log_level level, const char * text, void * user_data) {
+    (void) user_data;
+    if (level == GGML_LOG_LEVEL_ERROR) __android_log_print(ANDROID_LOG_ERROR, "llama.cpp", "%s", text);
+    else if (level == GGML_LOG_LEVEL_WARN) __android_log_print(ANDROID_LOG_WARN, "llama.cpp", "%s", text);
+    else __android_log_print(ANDROID_LOG_INFO, "llama.cpp", "%s", text);
+}
 
 template<class T>
 static std::string join(const std::vector<T> &values, const std::string &delim) {
