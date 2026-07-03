@@ -17,9 +17,14 @@ jobs:
     # Clone llama.cpp into the project root so CMakeLists.txt can find it
     - name: Clone llama.cpp
       run: |
-        git clone --depth 1 https://github.com/ggerganov/llama.cpp.git
-        cd llama.cpp
-        git submodule update --init --recursive
+        git clone --recurse-submodules --depth 1 --shallow-submodules https://github.com/ggerganov/llama.cpp.git
+        # Fallback: manually download nlohmann/json if submodule failed
+        if [ ! -f "llama.cpp/vendor/nlohmann/json/single_include/nlohmann/json_fwd.hpp" ]; then
+          echo "Submodule failed, downloading nlohmann/json manually..."
+          mkdir -p llama.cpp/vendor/nlohmann/json/single_include/nlohmann
+          curl -L https://raw.githubusercontent.com/nlohmann/json/develop/single_include/nlohmann/json_fwd.hpp -o llama.cpp/vendor/nlohmann/json/single_include/nlohmann/json_fwd.hpp
+          curl -L https://raw.githubusercontent.com/nlohmann/json/develop/single_include/nlohmann/json.hpp -o llama.cpp/vendor/nlohmann/json/single_include/nlohmann/json.hpp
+        fi
 
     - name: Set up JDK 17
       uses: actions/setup-java@v4
