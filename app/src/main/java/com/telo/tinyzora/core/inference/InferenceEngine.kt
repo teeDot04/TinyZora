@@ -1,4 +1,5 @@
 package com.telo.tinyzora.core.inference
+import com.telo.tinyzora.core.inference.InferenceEngine.State
 
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
