@@ -194,7 +194,7 @@ Java_com_telo_tinyzora_core_inference_InferenceEngineImpl_benchModel(
     JNIEnv* env, jobject, jint pp, jint tg, jint pl, jint nr) {
     
     auto voc = llama_model_get_vocab(g_model);
-    llama_kv_cache_clear(g_context);
+    llama_kv_self_clear(g_context);
     g_current_pos = 0;
     
     auto* chain = llama_sampler_chain_init(llama_sampler_chain_default_params());
