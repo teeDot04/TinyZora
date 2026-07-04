@@ -9,59 +9,63 @@
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "ai-chat", __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "ai-chat", __VA_ARGS__)
 
-static llama_model*    g_model    = nullptr;
-static llama_context*  g_context  = nullptr;
-static llama_sampler*  g_sampler  = nullptr;
-static std::vector<llama_token> g_tokens;
-static size_t g_token_pos = 0;
-static llama_pos g_system_prompt_pos = 0;
-static llama_pos g_current_pos = 0;
+static llama_model*    g_model   = nullptr;
+static llama_context*  g_context = nullptr;
+static llama_sampler*  g_sampler = nullptr;
+static llama_pos       g_current_pos = 0;
 
 static void free_model_resources() {
     if (g_sampler) { llama_sampler_free(g_sampler); g_sampler = nullptr; }
     if (g_context) { llama_free(g_context);          g_context = nullptr; }
     if (g_model)   { llama_model_free(g_model);      g_model   = nullptr; }
-    g_tokens.clear();
-    g_token_pos         = 0;
-    g_system_prompt_pos = 0;
-    g_current_pos       = 0;
+    g_current_pos = 0;
+}
+
+// Helper: decode a batch of tokens at explicit positions
+static int decode_tokens(const std::vector<llama_token>& tokens, llama_pos start_pos) {
+    int n = tokens.size();
+    llama_batch batch = llama_batch_init(n, 0, 1);
+    for (int i = 0; i < n; i++) {
+        batch.token[i]    = tokens[i];
+        batch.pos[i]      = start_pos + i;
+        batch.n_seq_id[i] = 1;
+        batch.seq_id[i][0] = 0;
+        batch.logits[i]   = (i == n - 1) ? 1 : 0;
+    }
+    int ret = llama_decode(g_context, batch);
+    llama_batch_free(batch);
+    return ret;
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_telo_tinyzora_core_inference_InferenceEngineImpl_init(JNIEnv*, jobject) {
     llama_backend_init();
-    LOGI("Llama backend initialized");
+    LOGI("Backend initialized");
 }
 
 extern "C" JNIEXPORT jint JNICALL
 Java_com_telo_tinyzora_core_inference_InferenceEngineImpl_load(
     JNIEnv* env, jobject, jstring path, jint ctx_size) {
-    
+
     free_model_resources();
 
-    const char* model_path = env->GetStringUTFChars(path, nullptr);
-    LOGI("Loading model: %s  ctx=%d", model_path, ctx_size);
+    const char* p = env->GetStringUTFChars(path, nullptr);
+    LOGI("Loading: %s  ctx=%d", p, ctx_size);
 
     llama_model_params mp = llama_model_default_params();
-    mp.use_mmap  = true;
-    mp.use_mlock = false;
-    g_model = llama_model_load_from_file(model_path, mp);
-    env->ReleaseStringUTFChars(path, model_path);
-    
-    if (!g_model) { LOGE("Failed to load model"); return 1; }
-    
+    g_model = llama_model_load_from_file(p, mp);
+    env->ReleaseStringUTFChars(path, p);
+    if (!g_model) return 1;
+
     llama_context_params cp = llama_context_default_params();
     cp.n_ctx    = ctx_size;
     cp.n_batch  = 512;
     cp.n_ubatch = 512;
     g_context = llama_init_from_model(g_model, cp);
-    
-    if (!g_context) {
-        LOGE("Failed to create context");
-        llama_model_free(g_model); g_model = nullptr;
-        return 2;
-    }
-    LOGI("Model loaded");
+    if (!g_context) { llama_model_free(g_model); g_model = nullptr; return 2; }
+
+    g_current_pos = 0;
+    LOGI("Model loaded OK");
     return 0;
 }
 
@@ -78,148 +82,109 @@ Java_com_telo_tinyzora_core_inference_InferenceEngineImpl_systemInfo(JNIEnv* env
 extern "C" JNIEXPORT jint JNICALL
 Java_com_telo_tinyzora_core_inference_InferenceEngineImpl_processSystemPrompt(
     JNIEnv* env, jobject, jstring prompt) {
-    
-    const char* s   = env->GetStringUTFChars(prompt, nullptr);
-    auto        voc = llama_model_get_vocab(g_model);
+
+    const char* s = env->GetStringUTFChars(prompt, nullptr);
+    auto voc = llama_model_get_vocab(g_model);
     auto tokens = common_tokenize(voc, s, true, true);
     env->ReleaseStringUTFChars(prompt, s);
-    
-    // Explicit batch to prevent silent failures on long prompts
-    llama_batch batch = llama_batch_init(tokens.size(), 0, 1);
-    for (size_t i = 0; i < tokens.size(); i++) {
-        batch.token[i]   = tokens[i];
-        batch.pos[i]     = i;
-        batch.n_seq_id[i] = 1;
-        batch.seq_id[i][0] = 0;
-        batch.logits[i]  = (i == tokens.size() - 1) ? 1 : 0;
-    }
-    
-    if (llama_decode(g_context, batch)) {
-        llama_batch_free(batch);
-        return 1;
-    }
-    llama_batch_free(batch);
-    
-    g_system_prompt_pos = tokens.size();
-    g_current_pos       = tokens.size();
+
+    if (decode_tokens(tokens, 0)) return 1;
+    g_current_pos = tokens.size();
     return 0;
 }
 
 extern "C" JNIEXPORT jint JNICALL
 Java_com_telo_tinyzora_core_inference_InferenceEngineImpl_processUserPrompt(
-    JNIEnv* env, jobject, jstring prompt, jint predict_length,
+    JNIEnv* env, jobject, jstring prompt,
     jfloat temperature, jint top_k, jfloat top_p) {
-    
-    const char* s   = env->GetStringUTFChars(prompt, nullptr);
-    auto        voc = llama_model_get_vocab(g_model);
+
+    const char* s = env->GetStringUTFChars(prompt, nullptr);
+    auto voc = llama_model_get_vocab(g_model);
+    // add_special=false: BOS already injected by system prompt
     auto tokens = common_tokenize(voc, s, false, true);
     env->ReleaseStringUTFChars(prompt, s);
-    
-    LOGI("User prompt tokens: %zu, generating %d tokens", tokens.size(), predict_length);
 
-    // Explicit batch for user prompt
-    llama_batch batch = llama_batch_init(tokens.size(), 0, 1);
-    for (size_t i = 0; i < tokens.size(); i++) {
-        batch.token[i]   = tokens[i];
-        batch.pos[i]     = g_current_pos + i;
-        batch.n_seq_id[i] = 1;
-        batch.seq_id[i][0] = 0;
-        batch.logits[i]  = (i == tokens.size() - 1) ? 1 : 0;
-    }
-    
-    if (llama_decode(g_context, batch)) {
-        LOGE("Failed to decode user prompt batch");
-        llama_batch_free(batch);
-        return 1;
-    }
-    llama_batch_free(batch);
+    LOGI("Decoding %zu user tokens at pos %d", tokens.size(), g_current_pos);
+    if (decode_tokens(tokens, g_current_pos)) return 1;
     g_current_pos += tokens.size();
-    
+
+    // Build sampler chain
     if (g_sampler) { llama_sampler_free(g_sampler); g_sampler = nullptr; }
-    
     auto* chain = llama_sampler_chain_init(llama_sampler_chain_default_params());
     if (top_k > 0)       llama_sampler_chain_add(chain, llama_sampler_init_top_k(top_k));
     if (top_p < 1.0f)    llama_sampler_chain_add(chain, llama_sampler_init_top_p(top_p, 1));
     if (temperature > 0) llama_sampler_chain_add(chain, llama_sampler_init_temp(temperature));
     llama_sampler_chain_add(chain, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
     g_sampler = chain;
-    
-    g_tokens.clear();
-    g_token_pos = 0;
-    
-    for (int i = 0; i < predict_length; i++) {
-        auto token = llama_sampler_sample(g_sampler, g_context, -1);
-        llama_sampler_accept(g_sampler, token);
-        if (llama_vocab_is_eog(voc, token)) break;
-        
-        g_tokens.push_back(token);
-        
-        // Explicit batch for single token generation
-        llama_batch gen_batch = llama_batch_init(1, 0, 1);
-        gen_batch.token[0]   = token;
-        gen_batch.pos[0]     = g_current_pos;
-        gen_batch.n_seq_id[0] = 1;
-        gen_batch.seq_id[0][0] = 0;
-        gen_batch.logits[0]  = 1;
-        
-        if (llama_decode(g_context, gen_batch)) {
-            LOGE("Failed to decode generated token");
-            llama_batch_free(gen_batch);
-            break;
-        }
-        llama_batch_free(gen_batch);
-        g_current_pos++;
-    }
-    LOGI("Generation finished. Total tokens: %zu", g_tokens.size());
+
     return 0;
 }
 
+// STREAMING: generates exactly ONE token per call
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_telo_tinyzora_core_inference_InferenceEngineImpl_generateNextToken(JNIEnv* env, jobject) {
-    if (g_token_pos >= g_tokens.size()) return nullptr;
-    auto token = g_tokens[g_token_pos++];
-    auto voc   = llama_model_get_vocab(g_model);
+    if (!g_sampler || !g_context) return nullptr;
+
+    auto token = llama_sampler_sample(g_sampler, g_context, -1);
+    llama_sampler_accept(g_sampler, token);
+
+    auto voc = llama_model_get_vocab(g_model);
+    if (llama_vocab_is_eog(voc, token)) return nullptr;
+
+    // Decode this single token at the correct position
+    llama_batch batch = llama_batch_init(1, 0, 1);
+    batch.token[0]    = token;
+    batch.pos[0]      = g_current_pos;
+    batch.n_seq_id[0] = 1;
+    batch.seq_id[0][0] = 0;
+    batch.logits[0]   = 1;
+
+    if (llama_decode(g_context, batch)) {
+        llama_batch_free(batch);
+        return nullptr;
+    }
+    llama_batch_free(batch);
+    g_current_pos++;
+
     char buf[256];
-    int  n = llama_token_to_piece(voc, token, buf, sizeof(buf), 0, true);
-    if (n < 0) return nullptr;
+    int n = llama_token_to_piece(voc, token, buf, sizeof(buf), 0, true);
+    if (n <= 0) return env->NewStringUTF("");
     return env->NewStringUTF(std::string(buf, n).c_str());
 }
 
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_telo_tinyzora_core_inference_InferenceEngineImpl_benchModel(
     JNIEnv* env, jobject, jint pp, jint tg, jint pl, jint nr) {
-    
-    g_current_pos = 0;
-    
+
     auto* chain = llama_sampler_chain_init(llama_sampler_chain_default_params());
     llama_sampler_chain_add(chain, llama_sampler_init_top_k(40));
     llama_sampler_chain_add(chain, llama_sampler_init_top_p(0.9f, 1));
     llama_sampler_chain_add(chain, llama_sampler_init_temp(0.7f));
     llama_sampler_chain_add(chain, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
-    
+
     auto start = std::chrono::high_resolution_clock::now();
     for (int run = 0; run < nr; run++) {
         for (int i = 0; i < tg; i++) {
-            auto        token = llama_sampler_sample(chain, g_context, -1);
+            auto token = llama_sampler_sample(chain, g_context, -1);
             llama_sampler_accept(chain, token);
-            llama_batch batch = llama_batch_get_one(&token, 1);
+            llama_batch batch = llama_batch_init(1, 0, 1);
+            batch.token[0] = token; batch.pos[0] = i;
+            batch.n_seq_id[0] = 1; batch.seq_id[0][0] = 0; batch.logits[0] = 1;
             llama_decode(g_context, batch);
+            llama_batch_free(batch);
         }
     }
-    auto end      = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    auto end = std::chrono::high_resolution_clock::now();
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
     llama_sampler_free(chain);
-    
-    g_current_pos = g_system_prompt_pos;
-    
-    float tokens_per_sec = (tg * nr * 1000.0f) / (float)duration;
-    char  desc[256];  llama_model_desc(g_model, desc, sizeof(desc));
-    char  result[512];
-    snprintf(result, sizeof(result),
+
+    float tps = (tg * nr * 1000.0f) / (float)ms;
+    char desc[256]; llama_model_desc(g_model, desc, sizeof(desc));
+    char res[512];
+    snprintf(res, sizeof(res),
         "Generated %d tokens in %lld ms\nSpeed: %.2f t/s\nModel: %s",
-        tg * nr, (long long)duration, tokens_per_sec, desc);
-        
-    return env->NewStringUTF(result);
+        tg * nr, (long long)ms, tps, desc);
+    return env->NewStringUTF(res);
 }
 
 extern "C" JNIEXPORT void JNICALL

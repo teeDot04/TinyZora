@@ -28,37 +28,31 @@ import java.io.File
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(onBack: () -> Unit, onOpenAIConfig: () -> Unit = {}) {
-    val context      = LocalContext.current
-    val userPrefs    = remember { UserPreferences(context) }
-    val scope        = rememberCoroutineScope()
-    val engine       = InferenceEngineImpl.getInstance(context)
-    
+    val context   = LocalContext.current
+    val userPrefs = remember { UserPreferences(context) }
+    val scope     = rememberCoroutineScope()
+    val engine    = InferenceEngineImpl.getInstance(context)
+
     var isLoading       by remember { mutableStateOf(false) }
     var currentModel    by remember { mutableStateOf(userPrefs.getModelPath().ifEmpty { "No model selected" }) }
     var benchmarkResult by remember { mutableStateOf("") }
     var isBenchmarking  by remember { mutableStateOf(false) }
 
-    val filePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         uri?.let {
             scope.launch {
                 isLoading = true
                 try {
-                    val fileName = "model.gguf"
-                    val destFile = File(context.filesDir, fileName)
+                    val dest = File(context.filesDir, "model.gguf")
                     withContext(Dispatchers.IO) {
-                        context.contentResolver.openInputStream(it)?.use { input ->
-                            destFile.outputStream().use { output -> input.copyTo(output) }
+                        context.contentResolver.openInputStream(it)?.use { i ->
+                            dest.outputStream().use { o -> i.copyTo(o) }
                         }
                     }
-                    userPrefs.setModelPath(destFile.absolutePath)
-                    currentModel = "Loaded: $fileName"
-                } catch (e: Exception) {
-                    currentModel = "Error: ${e.message}"
-                } finally {
-                    isLoading = false
-                }
+                    userPrefs.setModelPath(dest.absolutePath)
+                    currentModel = "Loaded: model.gguf"
+                } catch (e: Exception) { currentModel = "Error: ${e.message}" }
+                finally { isLoading = false }
             }
         }
     }
@@ -77,75 +71,61 @@ fun SettingsScreen(onBack: () -> Unit, onOpenAIConfig: () -> Unit = {}) {
         },
         containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
-        Column(
-            modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp)
-        ) {
+        Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp)) {
             Text("App Modules", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 16.dp))
-            
+
             Surface(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp).clickable { if (!isBenchmarking) onOpenAIConfig() },
+                Modifier.fillMaxWidth().padding(bottom = 16.dp).clickable { if (!isBenchmarking) onOpenAIConfig() },
                 shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceVariant
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Edit, null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(16.dp))
                         Column(Modifier.weight(1f)) {
                             Text("AI Configuration", style = MaterialTheme.typography.titleMedium)
-                            Text("Manage models, temperature, and inference settings", style = MaterialTheme.typography.bodySmall)
+                            Text("Temperature, Top-K, Top-P, context size", style = MaterialTheme.typography.bodySmall)
                         }
                     }
                     Spacer(Modifier.height(16.dp))
-                    Text("Current Model:", style = MaterialTheme.typography.bodySmall)
+                    Text("Model:", style = MaterialTheme.typography.bodySmall)
                     Text(currentModel, style = MaterialTheme.typography.bodyMedium)
                     Spacer(Modifier.height(16.dp))
-                    
-                    Button(
-                        onClick = { filePickerLauncher.launch("*/*") },
-                        modifier = Modifier.fillMaxWidth(), enabled = !isLoading && !isBenchmarking
-                    ) {
+
+                    Button(onClick = { filePicker.launch("*/*") }, Modifier.fillMaxWidth(), enabled = !isLoading && !isBenchmarking) {
                         if (isLoading) CircularProgressIndicator(Modifier.size(20.dp)) else Text("Import .gguf Model")
                     }
                     Spacer(Modifier.height(12.dp))
-                    
+
                     OutlinedButton(
                         onClick = {
                             scope.launch {
                                 isBenchmarking = true
-                                benchmarkResult = "Running benchmark..."
+                                benchmarkResult = "Running..."
                                 try {
-                                    val modelPath = userPrefs.getModelPath()
-                                    if (modelPath.isEmpty()) {
-                                        benchmarkResult = "Error: Import a model first"
-                                        return@launch
-                                    }
-                                    
-                                    // Read state directly to avoid Compose snapshot race conditions
-                                    when (val s = engine.state.value) {
-                                        is InferenceEngine.State.Initialized -> engine.loadModel(modelPath)
-                                        is InferenceEngine.State.ModelReady -> { /* already loaded */ }
-                                        else -> {
-                                            benchmarkResult = "Engine busy: $s"
-                                            return@launch
-                                        }
+                                    val path = userPrefs.getModelPath()
+                                    if (path.isEmpty()) { benchmarkResult = "Import a model first"; return@launch }
+                                    // Only load if not already loaded
+                                    when (engine.state.value) {
+                                        is InferenceEngine.State.Initialized -> engine.loadModel(path)
+                                        is InferenceEngine.State.ModelReady -> { }
+                                        else -> { benchmarkResult = "Engine busy"; return@launch }
                                     }
                                     benchmarkResult = engine.bench(512, 128, 1, 1)
-                                } catch (e: Exception) {
-                                    benchmarkResult = "Error: ${e.message}"
-                                } finally {
-                                    isBenchmarking = false
-                                }
+                                    // DO NOT call cleanUp() here - model stays loaded for chat
+                                } catch (e: Exception) { benchmarkResult = "Error: ${e.message}" }
+                                finally { isBenchmarking = false }
                             }
                         },
-                        modifier = Modifier.fillMaxWidth(), enabled = !isBenchmarking
+                        Modifier.fillMaxWidth(), enabled = !isBenchmarking
                     ) {
                         if (isBenchmarking) CircularProgressIndicator(Modifier.size(20.dp)) else Text("Run Benchmark")
                     }
-                    
+
                     if (benchmarkResult.isNotEmpty()) {
                         Spacer(Modifier.height(12.dp))
                         Surface(color = MaterialTheme.colorScheme.background, shape = RoundedCornerShape(8.dp)) {
-                            Text(benchmarkResult, modifier = Modifier.padding(12.dp), fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                            Text(benchmarkResult, Modifier.padding(12.dp), fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
                         }
                     }
                 }
