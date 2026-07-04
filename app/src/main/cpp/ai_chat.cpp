@@ -143,9 +143,6 @@ Java_com_telo_tinyzora_core_inference_InferenceEngineImpl_processUserPrompt(
         llama_sampler_chain_add(chain, llama_sampler_init_temp(temperature));
     }
     
-    // Add EOG sampler to handle end of generation
-    llama_sampler_chain_add(chain, llama_sampler_init_logits());
-    
     g_sampler = chain;
     
     g_tokens.clear();
@@ -156,7 +153,7 @@ Java_com_telo_tinyzora_core_inference_InferenceEngineImpl_processUserPrompt(
         auto token = llama_sampler_sample(g_sampler, g_context, -1);
         llama_sampler_accept(g_sampler, token);
         
-        if (llama_token_is_eog(vocab, token)) {
+        if (llama_vocab_is_eog(vocab, token)) {
             break;
         }
         
@@ -212,7 +209,6 @@ Java_com_telo_tinyzora_core_inference_InferenceEngineImpl_benchModel(
     llama_sampler_chain_add(chain, llama_sampler_init_top_k(40));
     llama_sampler_chain_add(chain, llama_sampler_init_top_p(0.9f, 1));
     llama_sampler_chain_add(chain, llama_sampler_init_temp(0.7f));
-    llama_sampler_chain_add(chain, llama_sampler_init_logits());
     
     // Generate tokens for benchmark
     for (int run = 0; run < nr; run++) {
