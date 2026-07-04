@@ -2,6 +2,7 @@
 #include <string>
 #include <android/log.h>
 #include <chrono>
+#include <random>
 #include "llama.h"
 #include "common.h"
 
@@ -15,6 +16,12 @@ static std::vector<llama_token> g_tokens;
 static size_t g_token_pos = 0;
 static llama_pos g_system_prompt_pos = 0;
 static llama_pos g_current_pos = 0;
+
+// Helper to get a random seed
+static uint32_t get_random_seed() {
+    std::random_device rd;
+    return rd();
+}
 
 extern "C"
 JNIEXPORT void JNICALL
@@ -31,6 +38,17 @@ Java_com_telo_tinyzora_core_inference_InferenceEngineImpl_load(
     const char* model_path = env->GetStringUTFChars(path, nullptr);
     LOGI("Loading model from: %s with context size: %d", model_path, ctx_size);
     
+    // FIX: Free existing model if it exists to prevent memory leaks
+    if (g_model) {
+        LOGI("Freeing existing model before reload...");
+        llama_model_free(g_model);
+        g_model = nullptr;
+    }
+    if (g_context) {
+        llama_free(g_context);
+        g_context = nullptr;
+    }
+
     llama_model_params model_params = llama_model_default_params();
     g_model = llama_model_load_from_file(model_path, model_params);
     env->ReleaseStringUTFChars(path, model_path);
@@ -132,7 +150,7 @@ Java_com_telo_tinyzora_core_inference_InferenceEngineImpl_processUserPrompt(
     
     auto* chain = llama_sampler_chain_init(llama_sampler_chain_default_params());
     
-    // Add samplers in order: top-k, top-p, temperature
+    // Add samplers in order
     if (top_k > 0) {
         llama_sampler_chain_add(chain, llama_sampler_init_top_k(top_k));
     }
@@ -142,6 +160,9 @@ Java_com_telo_tinyzora_core_inference_InferenceEngineImpl_processUserPrompt(
     if (temperature > 0.0f) {
         llama_sampler_chain_add(chain, llama_sampler_init_temp(temperature));
     }
+    
+    // CRITICAL FIX: Add distribution sampler at the end to actually pick the token
+    llama_sampler_chain_add(chain, llama_sampler_init_dist(get_random_seed()));
     
     g_sampler = chain;
     
@@ -209,6 +230,8 @@ Java_com_telo_tinyzora_core_inference_InferenceEngineImpl_benchModel(
     llama_sampler_chain_add(chain, llama_sampler_init_top_k(40));
     llama_sampler_chain_add(chain, llama_sampler_init_top_p(0.9f, 1));
     llama_sampler_chain_add(chain, llama_sampler_init_temp(0.7f));
+    // CRITICAL FIX: Add distribution sampler
+    llama_sampler_chain_add(chain, llama_sampler_init_dist(1234)); 
     
     // Generate tokens for benchmark
     for (int run = 0; run < nr; run++) {

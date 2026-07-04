@@ -19,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.telo.tinyzora.core.inference.InferenceEngine
 import com.telo.tinyzora.core.inference.InferenceEngineImpl
 import com.telo.tinyzora.core.security.UserPreferences
 import kotlinx.coroutines.Dispatchers
@@ -35,10 +36,13 @@ fun SettingsScreen(
     val context = LocalContext.current
     val userPrefs = remember { UserPreferences(context) }
     val scope = rememberCoroutineScope()
+    val engine = InferenceEngineImpl.getInstance(context)
+    
+    // Observe engine state to know if model is loaded
+    val engineState by engine.state.collectAsState()
     
     var isLoading by remember { mutableStateOf(false) }
     var currentModel by remember { mutableStateOf(userPrefs.getModelPath().ifEmpty { "No model selected" }) }
-    
     var benchmarkResult by remember { mutableStateOf("") }
     var isBenchmarking by remember { mutableStateOf(false) }
 
@@ -51,15 +55,11 @@ fun SettingsScreen(
                 try {
                     val fileName = "model.gguf"
                     val destFile = File(context.filesDir, fileName)
-                    
                     withContext(Dispatchers.IO) {
                         context.contentResolver.openInputStream(it)?.use { input ->
-                            destFile.outputStream().use { output ->
-                                input.copyTo(output)
-                            }
+                            destFile.outputStream().use { output -> input.copyTo(output) }
                         }
                     }
-                    
                     val newPath = destFile.absolutePath
                     userPrefs.setModelPath(newPath)
                     currentModel = "Loaded: $fileName"
@@ -77,15 +77,9 @@ fun SettingsScreen(
             TopAppBar(
                 title = { Text("Settings", color = MaterialTheme.colorScheme.onBackground) },
                 navigationIcon = {
-                    IconButton(
-                        onClick = onBack,
-                        enabled = !isBenchmarking
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = if (isBenchmarking) MaterialTheme.colorScheme.onBackground.copy(alpha = 0.38f) else MaterialTheme.colorScheme.onBackground
-                        )
+                    IconButton(onClick = onBack, enabled = !isBenchmarking) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back",
+                            tint = if (isBenchmarking) MaterialTheme.colorScheme.onBackground.copy(alpha = 0.38f) else MaterialTheme.colorScheme.onBackground)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
@@ -113,19 +107,14 @@ fun SettingsScreen(
                         }
                     }
                     Spacer(modifier = Modifier.height(16.dp))
-                    
                     Text("Current Model:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(currentModel, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    
                     Spacer(modifier = Modifier.height(16.dp))
                     
                     Button(onClick = { filePickerLauncher.launch("*/*") }, modifier = Modifier.fillMaxWidth(), enabled = !isLoading && !isBenchmarking, shape = RoundedCornerShape(12.dp)) {
-                        if (isLoading) {
-                            CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
-                        } else {
-                            Text("Import .gguf Model")
-                        }
+                        if (isLoading) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
+                        else Text("Import .gguf Model")
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
@@ -140,18 +129,16 @@ fun SettingsScreen(
                                     if (modelPath.isEmpty()) {
                                         benchmarkResult = "Error: Please import a model first!"
                                     } else {
-                                        val engine = InferenceEngineImpl.getInstance(context)
-                                        try {
+                                        // FIX: Only load if not already loaded to prevent memory leak/crash
+                                        if (engineState !is InferenceEngine.State.ModelReady) {
                                             engine.loadModel(modelPath)
-                                            val res = engine.bench(512, 128, 1, 1)
-                                            benchmarkResult = res
-                                            engine.cleanUp()
-                                        } catch (e: Exception) {
-                                            benchmarkResult = "Benchmark Error: ${e.message}"
                                         }
+                                        
+                                        val res = engine.bench(512, 128, 1, 1)
+                                        benchmarkResult = res
                                     }
                                 } catch (e: Exception) {
-                                    benchmarkResult = "Error: ${e.message}"
+                                    benchmarkResult = "Benchmark Error: ${e.message}"
                                 } finally {
                                     isBenchmarking = false
                                 }
@@ -170,13 +157,10 @@ fun SettingsScreen(
                     if (benchmarkResult.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(12.dp))
                         Surface(color = MaterialTheme.colorScheme.background, shape = RoundedCornerShape(8.dp)) {
-                            Text(
-                                text = benchmarkResult,
-                                modifier = Modifier.padding(12.dp),
+                            Text(text = benchmarkResult, modifier = Modifier.padding(12.dp),
                                 style = MaterialTheme.typography.bodySmall,
                                 fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                                color = MaterialTheme.colorScheme.onBackground
-                            )
+                                color = MaterialTheme.colorScheme.onBackground)
                         }
                     }
                 }
