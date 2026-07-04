@@ -1,6 +1,5 @@
 package com.telo.tinyzora.ui.settings
 
-import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -12,7 +11,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -29,22 +27,16 @@ import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(
-    onBack: () -> Unit,
-    onOpenAIConfig: () -> Unit = {}
-) {
-    val context = LocalContext.current
-    val userPrefs = remember { UserPreferences(context) }
-    val scope = rememberCoroutineScope()
-    val engine = InferenceEngineImpl.getInstance(context)
+fun SettingsScreen(onBack: () -> Unit, onOpenAIConfig: () -> Unit = {}) {
+    val context      = LocalContext.current
+    val userPrefs    = remember { UserPreferences(context) }
+    val scope        = rememberCoroutineScope()
+    val engine       = InferenceEngineImpl.getInstance(context)
     
-    // Observe engine state to know if model is loaded
-    val engineState by engine.state.collectAsState()
-    
-    var isLoading by remember { mutableStateOf(false) }
-    var currentModel by remember { mutableStateOf(userPrefs.getModelPath().ifEmpty { "No model selected" }) }
+    var isLoading       by remember { mutableStateOf(false) }
+    var currentModel    by remember { mutableStateOf(userPrefs.getModelPath().ifEmpty { "No model selected" }) }
     var benchmarkResult by remember { mutableStateOf("") }
-    var isBenchmarking by remember { mutableStateOf(false) }
+    var isBenchmarking  by remember { mutableStateOf(false) }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -60,8 +52,7 @@ fun SettingsScreen(
                             destFile.outputStream().use { output -> input.copyTo(output) }
                         }
                     }
-                    val newPath = destFile.absolutePath
-                    userPrefs.setModelPath(newPath)
+                    userPrefs.setModelPath(destFile.absolutePath)
                     currentModel = "Loaded: $fileName"
                 } catch (e: Exception) {
                     currentModel = "Error: ${e.message}"
@@ -75,11 +66,10 @@ fun SettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Settings", color = MaterialTheme.colorScheme.onBackground) },
+                title = { Text("Settings") },
                 navigationIcon = {
                     IconButton(onClick = onBack, enabled = !isBenchmarking) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back",
-                            tint = if (isBenchmarking) MaterialTheme.colorScheme.onBackground.copy(alpha = 0.38f) else MaterialTheme.colorScheme.onBackground)
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
@@ -90,35 +80,34 @@ fun SettingsScreen(
         Column(
             modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp)
         ) {
-            Text("App Modules", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.padding(bottom = 16.dp))
-
+            Text("App Modules", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 16.dp))
+            
             Surface(
                 modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp).clickable { if (!isBenchmarking) onOpenAIConfig() },
-                shape = RoundedCornerShape(16.dp),
-                color = if (isBenchmarking) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f) else MaterialTheme.colorScheme.surfaceVariant
+                shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceVariant
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Edit, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("AI Configuration", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text("Manage models, temperature, and inference settings", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+                        Icon(Icons.Default.Edit, null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(16.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("AI Configuration", style = MaterialTheme.typography.titleMedium)
+                            Text("Manage models, temperature, and inference settings", style = MaterialTheme.typography.bodySmall)
                         }
                     }
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text("Current Model:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(currentModel, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(Modifier.height(16.dp))
+                    Text("Current Model:", style = MaterialTheme.typography.bodySmall)
+                    Text(currentModel, style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.height(16.dp))
                     
-                    Button(onClick = { filePickerLauncher.launch("*/*") }, modifier = Modifier.fillMaxWidth(), enabled = !isLoading && !isBenchmarking, shape = RoundedCornerShape(12.dp)) {
-                        if (isLoading) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
-                        else Text("Import .gguf Model")
+                    Button(
+                        onClick = { filePickerLauncher.launch("*/*") },
+                        modifier = Modifier.fillMaxWidth(), enabled = !isLoading && !isBenchmarking
+                    ) {
+                        if (isLoading) CircularProgressIndicator(Modifier.size(20.dp)) else Text("Import .gguf Model")
                     }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
+                    Spacer(Modifier.height(12.dp))
+                    
                     OutlinedButton(
                         onClick = {
                             scope.launch {
@@ -127,51 +116,38 @@ fun SettingsScreen(
                                 try {
                                     val modelPath = userPrefs.getModelPath()
                                     if (modelPath.isEmpty()) {
-                                        benchmarkResult = "Error: Please import a model first!"
-                                    } else {
-                                        // FIX: Only load if not already loaded to prevent memory leak/crash
-                                        if (engineState !is InferenceEngine.State.ModelReady) {
-                                            engine.loadModel(modelPath)
-                                        }
-                                        
-                                        val res = engine.bench(512, 128, 1, 1)
-                                        benchmarkResult = res
+                                        benchmarkResult = "Error: Import a model first"
+                                        return@launch
                                     }
+                                    
+                                    // Read state directly to avoid Compose snapshot race conditions
+                                    when (val s = engine.state.value) {
+                                        is InferenceEngine.State.Initialized -> engine.loadModel(modelPath)
+                                        is InferenceEngine.State.ModelReady -> { /* already loaded */ }
+                                        else -> {
+                                            benchmarkResult = "Engine busy: $s"
+                                            return@launch
+                                        }
+                                    }
+                                    benchmarkResult = engine.bench(512, 128, 1, 1)
                                 } catch (e: Exception) {
-                                    benchmarkResult = "Benchmark Error: ${e.message}"
+                                    benchmarkResult = "Error: ${e.message}"
                                 } finally {
                                     isBenchmarking = false
                                 }
                             }
                         },
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = !isBenchmarking
+                        modifier = Modifier.fillMaxWidth(), enabled = !isBenchmarking
                     ) {
-                        if (isBenchmarking) {
-                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                            Spacer(modifier = Modifier.width(8.dp))
-                        }
-                        Text(if (isBenchmarking) "Running Benchmark..." else "Run Benchmark")
+                        if (isBenchmarking) CircularProgressIndicator(Modifier.size(20.dp)) else Text("Run Benchmark")
                     }
                     
                     if (benchmarkResult.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(Modifier.height(12.dp))
                         Surface(color = MaterialTheme.colorScheme.background, shape = RoundedCornerShape(8.dp)) {
-                            Text(text = benchmarkResult, modifier = Modifier.padding(12.dp),
-                                style = MaterialTheme.typography.bodySmall,
-                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                                color = MaterialTheme.colorScheme.onBackground)
+                            Text(benchmarkResult, modifier = Modifier.padding(12.dp), fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
                         }
                     }
-                }
-            }
-
-            Text("Privacy & Security", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.padding(bottom = 16.dp))
-            Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
-                Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Memory, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Text("Application Lock (Coming Soon)", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
