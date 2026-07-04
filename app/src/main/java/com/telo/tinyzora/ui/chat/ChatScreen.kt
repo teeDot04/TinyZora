@@ -14,8 +14,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
@@ -27,6 +25,7 @@ fun ChatScreen(
     viewModel: ChatViewModel = viewModel(),
     onOpenSettings: () -> Unit = {}
 ) {
+    val uiState by viewModel.uiState.collectAsState()
     val streamingState by viewModel.streamingState.collectAsState()
     val groupedMessages by viewModel.groupedMessages.collectAsState()
     
@@ -37,15 +36,36 @@ fun ChatScreen(
         modifier = Modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background
     ) { paddingValues ->
-        // imePadding() here pushes the whole layout up when keyboard opens
-        Box(modifier = Modifier.fillMaxSize().padding(paddingValues).imePadding()) {
+        Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
             
+            // Messages area - takes full height minus input
             LazyColumn(
                 state = listState,
-                modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(bottom = 90.dp) // Reserve space for input
+                    .padding(horizontal = 16.dp),
                 reverseLayout = true,
                 contentPadding = PaddingValues(vertical = 16.dp)
             ) {
+                // Show error if engine not ready
+                if (uiState.engineError) {
+                    item(key = "error") {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.errorContainer
+                        ) {
+                            Text(
+                                text = "Engine Error: Model not loaded. Please import a model in Settings.",
+                                modifier = Modifier.padding(16.dp),
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                    }
+                }
+                
                 groupedMessages.forEach { group ->
                     item(key = "header_${group.dateLabel}") {
                         Box(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
@@ -66,9 +86,13 @@ fun ChatScreen(
                 Icon(Icons.Default.Settings, contentDescription = "Settings", tint = MaterialTheme.colorScheme.primary) 
             }
 
-            // Input Area
+            // Input Area - Fixed at bottom
             Surface(
-                modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(16.dp),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(16.dp)
+                    .imePadding(), // This ensures keyboard doesn't cover it
                 shape = RoundedCornerShape(24.dp),
                 color = MaterialTheme.colorScheme.surfaceVariant
             ) {
@@ -76,11 +100,10 @@ fun ChatScreen(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Attachment Icons
-                    Icon(Icons.Default.AttachFile, contentDescription = "File", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp).padding(8.dp))
-                    Icon(Icons.Default.Image, contentDescription = "Image", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp).padding(8.dp))
-                    Icon(Icons.Default.CameraAlt, contentDescription = "Camera", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp).padding(8.dp))
-                    Icon(Icons.Default.Mic, contentDescription = "Audio", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp).padding(8.dp))
+                    Icon(Icons.Default.AttachFile, contentDescription = "File", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Default.Image, contentDescription = "Image", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Default.CameraAlt, contentDescription = "Camera", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Default.Mic, contentDescription = "Audio", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
 
                     TextField(
                         value = inputText,
@@ -92,26 +115,29 @@ fun ChatScreen(
                             focusedIndicatorColor = Color.Transparent,
                             unfocusedIndicatorColor = Color.Transparent
                         ),
-                        placeholder = { Text("Ask anything") },
+                        placeholder = { Text("Ask anything", color = MaterialTheme.colorScheme.onSurfaceVariant) },
                         maxLines = 4
                     )
 
-                    // Send Button (Always visible, changes icon based on state)
-                    IconButton(onClick = {
-                        if (streamingState.isGenerating) {
-                            viewModel.cancelGeneration()
-                        } else {
-                            val text = inputText.text.trim()
-                            if (text.isNotEmpty()) {
-                                viewModel.sendMessage(text)
-                                inputText = TextFieldValue("")
+                    val canSend = inputText.text.trim().isNotEmpty()
+                    IconButton(
+                        onClick = {
+                            if (streamingState.isGenerating) {
+                                viewModel.cancelGeneration()
+                            } else {
+                                val text = inputText.text.trim()
+                                if (text.isNotEmpty()) {
+                                    viewModel.sendMessage(text)
+                                    inputText = TextFieldValue("")
+                                }
                             }
-                        }
-                    }) {
+                        },
+                        enabled = canSend || streamingState.isGenerating
+                    ) {
                         Icon(
                             if (streamingState.isGenerating) Icons.Default.Stop else Icons.AutoMirrored.Filled.Send,
                             contentDescription = "Send",
-                            tint = MaterialTheme.colorScheme.primary
+                            tint = if (canSend || streamingState.isGenerating) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
                         )
                     }
                 }

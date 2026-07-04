@@ -27,7 +27,10 @@ import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onBack: () -> Unit) {
+fun SettingsScreen(
+    onBack: () -> Unit,
+    onOpenAIConfig: () -> Unit = {}
+) {
     val context = LocalContext.current
     val userPrefs = remember { UserPreferences(context) }
     val scope = rememberCoroutineScope()
@@ -35,7 +38,7 @@ fun SettingsScreen(onBack: () -> Unit) {
     var isLoading by remember { mutableStateOf(false) }
     var currentModel by remember { mutableStateOf(userPrefs.getModelPath().ifEmpty { "No model selected" }) }
     
-    var benchmarkResult by remember { mutableStateOf("Not run") }
+    var benchmarkResult by remember { mutableStateOf("") }
     var isBenchmarking by remember { mutableStateOf(false) }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
@@ -73,8 +76,15 @@ fun SettingsScreen(onBack: () -> Unit) {
             TopAppBar(
                 title = { Text("Settings", color = MaterialTheme.colorScheme.onBackground) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onBackground)
+                    IconButton(
+                        onClick = onBack,
+                        enabled = !isBenchmarking // Disable during benchmark
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = if (isBenchmarking) MaterialTheme.colorScheme.onBackground.copy(alpha = 0.38f) else MaterialTheme.colorScheme.onBackground
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
@@ -87,7 +97,12 @@ fun SettingsScreen(onBack: () -> Unit) {
         ) {
             Text("App Modules", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.padding(bottom = 16.dp))
 
-            Surface(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
+            // AI Configuration Card
+            Surface(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp).clickable { if (!isBenchmarking) onOpenAIConfig() },
+                shape = RoundedCornerShape(16.dp),
+                color = if (isBenchmarking) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f) else MaterialTheme.colorScheme.surfaceVariant
+            ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Edit, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
@@ -105,7 +120,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                     
                     Spacer(modifier = Modifier.height(16.dp))
                     
-                    Button(onClick = { filePickerLauncher.launch("*/*") }, modifier = Modifier.fillMaxWidth(), enabled = !isLoading, shape = RoundedCornerShape(12.dp)) {
+                    Button(onClick = { filePickerLauncher.launch("*/*") }, modifier = Modifier.fillMaxWidth(), enabled = !isLoading && !isBenchmarking, shape = RoundedCornerShape(12.dp)) {
                         if (isLoading) {
                             CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
                         } else {
@@ -119,16 +134,18 @@ fun SettingsScreen(onBack: () -> Unit) {
                         onClick = {
                             scope.launch {
                                 isBenchmarking = true
-                                benchmarkResult = "Running benchmark (this may take a minute)..."
+                                benchmarkResult = "Running benchmark (this may take a moment)..."
                                 try {
                                     val modelPath = userPrefs.getModelPath()
                                     if (modelPath.isEmpty()) {
                                         benchmarkResult = "Error: Please import a model first!"
                                     } else {
-                                        // Create a fresh engine instance for benchmarking
+                                        // Create fresh engine and benchmark
                                         val engine = InferenceEngineImpl.getInstance(context)
                                         try {
+                                            // Load model with current settings
                                             engine.loadModel(modelPath)
+                                            // Quick benchmark: pp=512 tokens, tg=128 tokens, pl=1 (parallel), nr=1 (runs)
                                             val res = engine.bench(512, 128, 1, 1)
                                             benchmarkResult = res
                                             engine.cleanUp()
@@ -153,7 +170,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                         Text(if (isBenchmarking) "Running Benchmark..." else "Run Benchmark")
                     }
                     
-                    if (benchmarkResult != "Not run" && benchmarkResult.isNotEmpty()) {
+                    if (benchmarkResult.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(12.dp))
                         Surface(color = MaterialTheme.colorScheme.background, shape = RoundedCornerShape(8.dp)) {
                             Text(
