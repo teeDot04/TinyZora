@@ -60,7 +60,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                     userPrefs.setModelPath(newPath)
                     currentModel = "Loaded: $fileName"
                 } catch (e: Exception) {
-                    currentModel = "Error loading model"
+                    currentModel = "Error: ${e.message}"
                 } finally {
                     isLoading = false
                 }
@@ -119,13 +119,25 @@ fun SettingsScreen(onBack: () -> Unit) {
                         onClick = {
                             scope.launch {
                                 isBenchmarking = true
-                                benchmarkResult = "Running benchmark..."
+                                benchmarkResult = "Running benchmark (this may take a minute)..."
                                 try {
-                                    val engine = InferenceEngineImpl.getInstance(context)
-                                    val res = engine.bench(512, 128, 1)
-                                    benchmarkResult = res
+                                    val modelPath = userPrefs.getModelPath()
+                                    if (modelPath.isEmpty()) {
+                                        benchmarkResult = "Error: Please import a model first!"
+                                    } else {
+                                        // Create a fresh engine instance for benchmarking
+                                        val engine = InferenceEngineImpl.getInstance(context)
+                                        try {
+                                            engine.loadModel(modelPath)
+                                            val res = engine.bench(512, 128, 1, 1)
+                                            benchmarkResult = res
+                                            engine.cleanUp()
+                                        } catch (e: Exception) {
+                                            benchmarkResult = "Benchmark Error: ${e.message}"
+                                        }
+                                    }
                                 } catch (e: Exception) {
-                                    benchmarkResult = "Error: Load a model first! (${e.message})"
+                                    benchmarkResult = "Error: ${e.message}"
                                 } finally {
                                     isBenchmarking = false
                                 }
@@ -138,10 +150,10 @@ fun SettingsScreen(onBack: () -> Unit) {
                             CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                             Spacer(modifier = Modifier.width(8.dp))
                         }
-                        Text(if (isBenchmarking) "Benchmarking..." else "Run Benchmark")
+                        Text(if (isBenchmarking) "Running Benchmark..." else "Run Benchmark")
                     }
                     
-                    if (benchmarkResult != "Not run") {
+                    if (benchmarkResult != "Not run" && benchmarkResult.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(12.dp))
                         Surface(color = MaterialTheme.colorScheme.background, shape = RoundedCornerShape(8.dp)) {
                             Text(

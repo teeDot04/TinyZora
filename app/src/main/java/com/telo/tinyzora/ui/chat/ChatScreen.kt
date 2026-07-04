@@ -38,14 +38,14 @@ fun ChatScreen(
     val focusRequester = remember { FocusRequester() }
 
     Scaffold(
-        modifier = Modifier.fillMaxSize().imePadding(),
+        modifier = Modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background
     ) { paddingValues ->
         Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
             
             LazyColumn(
                 state = listState,
-                modifier = Modifier.fillMaxSize().padding(bottom = 80.dp).padding(horizontal = 16.dp),
+                modifier = Modifier.fillMaxSize().padding(bottom = 90.dp).padding(horizontal = 16.dp),
                 reverseLayout = true,
                 contentPadding = PaddingValues(vertical = 16.dp)
             ) {
@@ -81,43 +81,80 @@ fun ChatScreen(
                 Icon(Icons.Default.Settings, contentDescription = "Settings", tint = MaterialTheme.colorScheme.primary) 
             }
 
-            Column(modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(16.dp)) {
+            // Input Area at bottom
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(16.dp)
+                    .imePadding()
+            ) {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(24.dp),
                     color = MaterialTheme.colorScheme.surfaceVariant
                 ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        IconButton(onClick = { /* Wire to file picker later */ }) {
-                            Icon(Icons.Default.AttachFile, contentDescription = "Attach", tint = MaterialTheme.colorScheme.primary)
+                        // Attachment menu icons
+                        IconButton(onClick = { /* File picker */ }) {
+                            Icon(Icons.Default.AttachFile, contentDescription = "Attach File", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                        }
+                        
+                        IconButton(onClick = { /* Image picker */ }) {
+                            Icon(Icons.Default.Image, contentDescription = "Attach Image", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                        }
+                        
+                        IconButton(onClick = { /* Camera */ }) {
+                            Icon(Icons.Default.CameraAlt, contentDescription = "Take Photo", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                        }
+                        
+                        IconButton(onClick = { /* Audio recording */ }) {
+                            Icon(Icons.Default.Mic, contentDescription = "Record Audio", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                         }
 
+                        // Text input
                         TextField(
                             value = inputText,
                             onValueChange = { inputText = it },
-                            modifier = Modifier.fillMaxWidth().focusRequester(focusRequester), // Fixed weight bug
+                            modifier = Modifier
+                                .weight(1f)
+                                .focusRequester(focusRequester),
                             colors = TextFieldDefaults.colors(
                                 focusedContainerColor = Color.Transparent,
                                 unfocusedContainerColor = Color.Transparent,
                                 focusedIndicatorColor = Color.Transparent,
                                 unfocusedIndicatorColor = Color.Transparent
                             ),
-                            placeholder = { Text("Ask anything") },
+                            placeholder = { Text("Ask anything", color = MaterialTheme.colorScheme.onSurfaceVariant) },
                             maxLines = 4
                         )
 
+                        // Send button - only visible when text exists
                         val canSend = inputText.text.trim().isNotEmpty()
-                        IconButton(onClick = {
-                            val text = inputText.text.trim()
-                            if (text.isNotEmpty()) {
-                                viewModel.sendMessage(text)
-                                inputText = TextFieldValue("")
+                        if (canSend || streamingState.isGenerating) {
+                            IconButton(
+                                onClick = {
+                                    if (streamingState.isGenerating) {
+                                        viewModel.cancelGeneration()
+                                    } else {
+                                        val text = inputText.text.trim()
+                                        if (text.isNotEmpty()) {
+                                            viewModel.sendMessage(text)
+                                            inputText = TextFieldValue("")
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Icon(
+                                    if (streamingState.isGenerating) Icons.Rounded.Stop else Icons.AutoMirrored.Filled.Send,
+                                    contentDescription = if (streamingState.isGenerating) "Stop" else "Send",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
                             }
-                        }, enabled = canSend) {
-                            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", tint = if (canSend) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f))
                         }
                     }
                 }
