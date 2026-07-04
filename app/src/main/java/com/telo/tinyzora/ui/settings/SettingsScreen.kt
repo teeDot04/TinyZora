@@ -4,8 +4,6 @@ import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -14,14 +12,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.telo.tinyzora.core.inference.InferenceEngineImpl
 import com.telo.tinyzora.core.security.UserPreferences
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -37,8 +34,10 @@ fun SettingsScreen(onBack: () -> Unit) {
     
     var isLoading by remember { mutableStateOf(false) }
     var currentModel by remember { mutableStateOf(userPrefs.getModelPath().ifEmpty { "No model selected" }) }
+    
+    var benchmarkResult by remember { mutableStateOf("Not run") }
+    var isBenchmarking by remember { mutableStateOf(false) }
 
-    // File picker launcher
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -46,8 +45,7 @@ fun SettingsScreen(onBack: () -> Unit) {
             scope.launch {
                 isLoading = true
                 try {
-                    // Copy file to internal storage so C++ can read it
-                    val fileName = "model.gguf" // You can make this dynamic later
+                    val fileName = "model.gguf"
                     val destFile = File(context.filesDir, fileName)
                     
                     withContext(Dispatchers.IO) {
@@ -85,20 +83,11 @@ fun SettingsScreen(onBack: () -> Unit) {
         containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp)
+            modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp)
         ) {
             Text("App Modules", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.padding(bottom = 16.dp))
 
-            // AI Configuration Card
-            Surface(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant
-            ) {
+            Surface(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Edit, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
@@ -116,28 +105,59 @@ fun SettingsScreen(onBack: () -> Unit) {
                     
                     Spacer(modifier = Modifier.height(16.dp))
                     
-                    Button(
-                        onClick = { filePickerLauncher.launch("*/*") },
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = !isLoading,
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
+                    Button(onClick = { filePickerLauncher.launch("*/*") }, modifier = Modifier.fillMaxWidth(), enabled = !isLoading, shape = RoundedCornerShape(12.dp)) {
                         if (isLoading) {
                             CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
                         } else {
                             Text("Import .gguf Model")
                         }
                     }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    OutlinedButton(
+                        onClick = {
+                            scope.launch {
+                                isBenchmarking = true
+                                benchmarkResult = "Running benchmark..."
+                                try {
+                                    val engine = InferenceEngineImpl.getInstance(context)
+                                    val res = engine.bench(512, 128, 1)
+                                    benchmarkResult = res
+                                } catch (e: Exception) {
+                                    benchmarkResult = "Error: Load a model first! (${e.message})"
+                                } finally {
+                                    isBenchmarking = false
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !isBenchmarking
+                    ) {
+                        if (isBenchmarking) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                        }
+                        Text(if (isBenchmarking) "Benchmarking..." else "Run Benchmark")
+                    }
+                    
+                    if (benchmarkResult != "Not run") {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Surface(color = MaterialTheme.colorScheme.background, shape = RoundedCornerShape(8.dp)) {
+                            Text(
+                                text = benchmarkResult,
+                                modifier = Modifier.padding(12.dp),
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                color = MaterialTheme.colorScheme.onBackground
+                            )
+                        }
+                    }
                 }
             }
 
-            // Other stub cards to match your design
             Text("Privacy & Security", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.padding(bottom = 16.dp))
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant
-            ) {
+            Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
                 Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Memory, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.width(16.dp))
