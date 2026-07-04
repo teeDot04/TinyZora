@@ -21,6 +21,7 @@ android {
             cmake {
                 cppFlags += "-std=c++17"
                 abiFilters += "arm64-v8a"
+                arguments += "-DLLAMA_BUILD_COMMON=ON"
             }
         }
     }

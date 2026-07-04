@@ -19,7 +19,6 @@ endif()
 set(LLAMA_SRC ${CMAKE_CURRENT_LIST_DIR}/../../../../llama.cpp)
 add_subdirectory(${LLAMA_SRC} build-llama)
 
-# Only compile our ai_chat.cpp
 add_library(${CMAKE_PROJECT_NAME} SHARED
     ai_chat.cpp
 )
@@ -39,10 +38,9 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     ${LLAMA_SRC}/vendor/nlohmann/json/single_include
 )
 
-# Link against llama and common (both are built by llama.cpp)
 target_link_libraries(${CMAKE_PROJECT_NAME}
     llama
-    common
+    llama-common
     android
     log
 )
