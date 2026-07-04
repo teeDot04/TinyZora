@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -78,7 +79,7 @@ fun SettingsScreen(
                 navigationIcon = {
                     IconButton(
                         onClick = onBack,
-                        enabled = !isBenchmarking // Disable during benchmark
+                        enabled = !isBenchmarking
                     ) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
@@ -97,7 +98,6 @@ fun SettingsScreen(
         ) {
             Text("App Modules", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.padding(bottom = 16.dp))
 
-            // AI Configuration Card
             Surface(
                 modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp).clickable { if (!isBenchmarking) onOpenAIConfig() },
                 shape = RoundedCornerShape(16.dp),
@@ -134,18 +134,15 @@ fun SettingsScreen(
                         onClick = {
                             scope.launch {
                                 isBenchmarking = true
-                                benchmarkResult = "Running benchmark (this may take a moment)..."
+                                benchmarkResult = "Running benchmark..."
                                 try {
                                     val modelPath = userPrefs.getModelPath()
                                     if (modelPath.isEmpty()) {
                                         benchmarkResult = "Error: Please import a model first!"
                                     } else {
-                                        // Create fresh engine and benchmark
                                         val engine = InferenceEngineImpl.getInstance(context)
                                         try {
-                                            // Load model with current settings
                                             engine.loadModel(modelPath)
-                                            // Quick benchmark: pp=512 tokens, tg=128 tokens, pl=1 (parallel), nr=1 (runs)
                                             val res = engine.bench(512, 128, 1, 1)
                                             benchmarkResult = res
                                             engine.cleanUp()

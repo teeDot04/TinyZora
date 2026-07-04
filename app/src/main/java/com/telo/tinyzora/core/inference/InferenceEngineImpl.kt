@@ -31,25 +31,16 @@ internal class InferenceEngineImpl private constructor(
     private val llamaDispatcher = Dispatchers.IO.limitedParallelism(1)
     private val llamaScope = CoroutineScope(llamaDispatcher + SupervisorJob())
 
-    @FastNative
+    // JNI declarations - no annotations needed (matches kotlin-llama reference)
     private external fun init()
-    @FastNative
     private external fun load(modelPath: String, ctxSize: Int): Int
-    @FastNative
     private external fun prepare(): Int
-    @FastNative
     private external fun systemInfo(): String
-    @FastNative
     private external fun benchModel(pp: Int, tg: Int, pl: Int, nr: Int): String
-    @FastNative
     private external fun processSystemPrompt(systemPrompt: String): Int
-    @FastNative
     private external fun processUserPrompt(userPrompt: String, predictLength: Int, temperature: Float, topK: Int, topP: Float): Int
-    @FastNative
     private external fun generateNextToken(): String?
-    @FastNative
     private external fun unload()
-    @FastNative
     private external fun shutdown()
 
     init {
