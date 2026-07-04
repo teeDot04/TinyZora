@@ -17,7 +17,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.telo.tinyzora.core.inference.InferenceEngine
 import com.telo.tinyzora.core.inference.InferenceEngineImpl
 import com.telo.tinyzora.core.security.UserPreferences
 import kotlinx.coroutines.Dispatchers
@@ -31,7 +30,7 @@ fun SettingsScreen(onBack: () -> Unit, onOpenAIConfig: () -> Unit = {}) {
     val context   = LocalContext.current
     val userPrefs = remember { UserPreferences(context) }
     val scope     = rememberCoroutineScope()
-    val engine    = InferenceEngineImpl.getInstance(context)
+    val engine    = remember { InferenceEngineImpl.getInstance(context) }
 
     var isLoading       by remember { mutableStateOf(false) }
     var currentModel    by remember { mutableStateOf(userPrefs.getModelPath().ifEmpty { "No model selected" }) }
@@ -51,8 +50,11 @@ fun SettingsScreen(onBack: () -> Unit, onOpenAIConfig: () -> Unit = {}) {
                     }
                     userPrefs.setModelPath(dest.absolutePath)
                     currentModel = "Loaded: model.gguf"
-                } catch (e: Exception) { currentModel = "Error: ${e.message}" }
-                finally { isLoading = false }
+                } catch (e: Exception) { 
+                    currentModel = "Error: ${e.message}" 
+                } finally { 
+                    isLoading = false 
+                }
             }
         }
     }
@@ -71,12 +73,22 @@ fun SettingsScreen(onBack: () -> Unit, onOpenAIConfig: () -> Unit = {}) {
         },
         containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp)) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp)
+        ) {
             Text("App Modules", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 16.dp))
 
             Surface(
-                Modifier.fillMaxWidth().padding(bottom = 16.dp).clickable { if (!isBenchmarking) onOpenAIConfig() },
-                shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceVariant
+                Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp)
+                    .clickable { if (!isBenchmarking) onOpenAIConfig() },
+                shape = RoundedCornerShape(16.dp), 
+                color = MaterialTheme.colorScheme.surfaceVariant
             ) {
                 Column(Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -92,8 +104,13 @@ fun SettingsScreen(onBack: () -> Unit, onOpenAIConfig: () -> Unit = {}) {
                     Text(currentModel, style = MaterialTheme.typography.bodyMedium)
                     Spacer(Modifier.height(16.dp))
 
-                    Button(onClick = { filePicker.launch("*/*") }, Modifier.fillMaxWidth(), enabled = !isLoading && !isBenchmarking) {
-                        if (isLoading) CircularProgressIndicator(Modifier.size(20.dp)) else Text("Import .gguf Model")
+                    Button(
+                        onClick = { filePicker.launch("*/*") }, 
+                        Modifier.fillMaxWidth(), 
+                        enabled = !isLoading && !isBenchmarking
+                    ) {
+                        if (isLoading) CircularProgressIndicator(Modifier.size(20.dp)) 
+                        else Text("Import .gguf Model")
                     }
                     Spacer(Modifier.height(12.dp))
 
@@ -104,28 +121,41 @@ fun SettingsScreen(onBack: () -> Unit, onOpenAIConfig: () -> Unit = {}) {
                                 benchmarkResult = "Running..."
                                 try {
                                     val path = userPrefs.getModelPath()
-                                    if (path.isEmpty()) { benchmarkResult = "Import a model first"; return@launch }
-                                    // Only load if not already loaded
-                                    when (engine.state.value) {
-                                        is InferenceEngine.State.Initialized -> engine.loadModel(path)
-                                        is InferenceEngine.State.ModelReady -> { }
-                                        else -> { benchmarkResult = "Engine busy"; return@launch }
+                                    if (path.isEmpty()) { 
+                                        benchmarkResult = "Import a model first"
+                                        return@launch 
                                     }
+                                    
+                                    // Just load the model - engine handles its own state
+                                    engine.loadModel(path)
+                                    
+                                    // Run benchmark
                                     benchmarkResult = engine.bench(512, 128, 1, 1)
-                                    // DO NOT call cleanUp() here - model stays loaded for chat
-                                } catch (e: Exception) { benchmarkResult = "Error: ${e.message}" }
-                                finally { isBenchmarking = false }
+                                    
+                                    // DO NOT call cleanUp() - keep model loaded for chat!
+                                    
+                                } catch (e: Exception) { 
+                                    benchmarkResult = "Error: ${e.message}" 
+                                } finally { 
+                                    isBenchmarking = false 
+                                }
                             }
                         },
-                        Modifier.fillMaxWidth(), enabled = !isBenchmarking
+                        Modifier.fillMaxWidth(), 
+                        enabled = !isBenchmarking
                     ) {
-                        if (isBenchmarking) CircularProgressIndicator(Modifier.size(20.dp)) else Text("Run Benchmark")
+                        if (isBenchmarking) CircularProgressIndicator(Modifier.size(20.dp)) 
+                        else Text("Run Benchmark")
                     }
 
                     if (benchmarkResult.isNotEmpty()) {
                         Spacer(Modifier.height(12.dp))
                         Surface(color = MaterialTheme.colorScheme.background, shape = RoundedCornerShape(8.dp)) {
-                            Text(benchmarkResult, Modifier.padding(12.dp), fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                            Text(
+                                benchmarkResult, 
+                                Modifier.padding(12.dp), 
+                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                            )
                         }
                     }
                 }
