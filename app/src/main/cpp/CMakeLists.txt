@@ -39,8 +39,10 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     ${LLAMA_SRC}/vendor/nlohmann/json/single_include
 )
 
+# Link against llama and common (both are built by llama.cpp)
 target_link_libraries(${CMAKE_PROJECT_NAME}
     llama
+    common
     android
     log
 )
