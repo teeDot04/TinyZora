@@ -10,7 +10,7 @@
 
 static llama_model* g_model = nullptr;
 static llama_context* g_context = nullptr;
-static common_sampler* g_sampler = nullptr;
+static llama_sampler* g_sampler = nullptr;
 static std::vector<llama_token> g_tokens;
 static size_t g_token_pos = 0;
 static llama_pos g_system_prompt_pos = 0;
@@ -87,7 +87,8 @@ Java_com_telo_tinyzora_core_inference_InferenceEngineImpl_processSystemPrompt(
     const char* prompt_str = env->GetStringUTFChars(prompt, nullptr);
     LOGI("Setting system prompt");
     
-    auto tokens = common_tokenize(g_context, prompt_str, true, true);
+    auto vocab = llama_model_get_vocab(g_model);
+    auto tokens = common_tokenize(vocab, prompt_str, true, true);
     env->ReleaseStringUTFChars(prompt, prompt_str);
     
     llama_batch batch = llama_batch_get_one(tokens.data(), tokens.size());
@@ -112,7 +113,8 @@ Java_com_telo_tinyzora_core_inference_InferenceEngineImpl_processUserPrompt(
     LOGI("Processing user prompt: temp=%.2f, top_k=%d, top_p=%.2f, predict_length=%d",
          temperature, top_k, top_p, predict_length);
     
-    auto tokens = common_tokenize(g_context, prompt_str, true, true);
+    auto vocab = llama_model_get_vocab(g_model);
+    auto tokens = common_tokenize(vocab, prompt_str, true, true);
     env->ReleaseStringUTFChars(prompt, prompt_str);
     
     llama_batch batch = llama_batch_get_one(tokens.data(), tokens.size());
@@ -123,26 +125,38 @@ Java_com_telo_tinyzora_core_inference_InferenceEngineImpl_processUserPrompt(
     
     g_current_pos += tokens.size();
     
-    // Create sampler with user preferences
-    common_sampler_params sampler_params;
-    sampler_params.temp = temperature;
-    sampler_params.top_k = top_k;
-    sampler_params.top_p = top_p;
-    
+    // Create sampler chain with user preferences
     if (g_sampler) {
-        common_sampler_free(g_sampler);
+        llama_sampler_free(g_sampler);
     }
-    g_sampler = common_sampler_init(g_model, sampler_params);
+    
+    auto* chain = llama_sampler_chain_init(llama_sampler_chain_default_params());
+    
+    // Add samplers in order: top-k, top-p, temperature
+    if (top_k > 0) {
+        llama_sampler_chain_add(chain, llama_sampler_init_top_k(top_k));
+    }
+    if (top_p < 1.0f) {
+        llama_sampler_chain_add(chain, llama_sampler_init_top_p(top_p, 1));
+    }
+    if (temperature > 0.0f) {
+        llama_sampler_chain_add(chain, llama_sampler_init_temp(temperature));
+    }
+    
+    // Add EOG sampler to handle end of generation
+    llama_sampler_chain_add(chain, llama_sampler_init_logits());
+    
+    g_sampler = chain;
     
     g_tokens.clear();
     g_token_pos = 0;
     
     // Generate tokens
     for (int i = 0; i < predict_length; i++) {
-        auto token = common_sampler_sample(g_sampler, g_context, -1);
-        common_sampler_accept(g_sampler, token, true);
+        auto token = llama_sampler_sample(g_sampler, g_context, -1);
+        llama_sampler_accept(g_sampler, token);
         
-        if (llama_token_is_eog(g_model, token)) {
+        if (llama_token_is_eog(vocab, token)) {
             break;
         }
         
@@ -171,8 +185,9 @@ Java_com_telo_tinyzora_core_inference_InferenceEngineImpl_generateNextToken(
     }
     
     auto token = g_tokens[g_token_pos++];
+    auto vocab = llama_model_get_vocab(g_model);
     char buf[256];
-    int n = llama_token_to_piece(g_model, token, buf, sizeof(buf), 0, true);
+    int n = llama_token_to_piece(vocab, token, buf, sizeof(buf), 0, true);
     
     if (n < 0) {
         return nullptr;
@@ -189,20 +204,21 @@ Java_com_telo_tinyzora_core_inference_InferenceEngineImpl_benchModel(
     
     LOGI("Running benchmark: pp=%d, tg=%d, pl=%d, nr=%d", pp, tg, pl, nr);
     
+    auto vocab = llama_model_get_vocab(g_model);
     auto start = std::chrono::high_resolution_clock::now();
     
-    common_sampler_params params;
-    params.temp = 0.7f;
-    params.top_k = 40;
-    params.top_p = 0.9f;
-    
-    auto* sampler = common_sampler_init(g_model, params);
+    // Create sampler chain for benchmark
+    auto* chain = llama_sampler_chain_init(llama_sampler_chain_default_params());
+    llama_sampler_chain_add(chain, llama_sampler_init_top_k(40));
+    llama_sampler_chain_add(chain, llama_sampler_init_top_p(0.9f, 1));
+    llama_sampler_chain_add(chain, llama_sampler_init_temp(0.7f));
+    llama_sampler_chain_add(chain, llama_sampler_init_logits());
     
     // Generate tokens for benchmark
     for (int run = 0; run < nr; run++) {
         for (int i = 0; i < tg; i++) {
-            auto token = common_sampler_sample(sampler, g_context, -1);
-            common_sampler_accept(sampler, token, true);
+            auto token = llama_sampler_sample(chain, g_context, -1);
+            llama_sampler_accept(chain, token);
             
             llama_batch batch = llama_batch_get_one(&token, 1);
             llama_decode(g_context, batch);
@@ -212,17 +228,19 @@ Java_com_telo_tinyzora_core_inference_InferenceEngineImpl_benchModel(
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
     
-    common_sampler_free(sampler);
+    llama_sampler_free(chain);
     
     float tokens_per_sec = (tg * nr * 1000.0f) / duration;
+    char desc[256];
+    llama_model_desc(g_model, desc, sizeof(desc));
+    
     char result[512];
     snprintf(result, sizeof(result),
              "Benchmark Results:\n"
              "Generated %d tokens in %lld ms\n"
              "Speed: %.2f tokens/sec\n"
              "Model: %s",
-             tg * nr, (long long)duration, tokens_per_sec,
-             llama_model_desc(g_model, nullptr, 0));
+             tg * nr, (long long)duration, tokens_per_sec, desc);
     
     LOGI("Benchmark result: %s", result);
     return env->NewStringUTF(result);
@@ -234,7 +252,7 @@ Java_com_telo_tinyzora_core_inference_InferenceEngineImpl_unload(
     JNIEnv* env, jobject thiz) {
     
     if (g_sampler) {
-        common_sampler_free(g_sampler);
+        llama_sampler_free(g_sampler);
         g_sampler = nullptr;
     }
     
