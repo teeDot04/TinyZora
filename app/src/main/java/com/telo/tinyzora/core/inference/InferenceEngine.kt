@@ -1,6 +1,6 @@
 package com.telo.tinyzora.core.inference
-import com.telo.tinyzora.core.inference.InferenceEngine.State
 
+import com.telo.tinyzora.core.inference.InferenceEngine.State
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -28,23 +28,24 @@ interface InferenceEngine {
     }
 
     companion object {
-        const val DEFAULT_PREDICT_LENGTH = 1024
+        // Lowered to 64 for testing so you don't wait 30 minutes at 0.54 t/s
+        const val DEFAULT_PREDICT_LENGTH = 64 
     }
 }
 
 val State.isUninterruptible
-    get() = this is State.Initializing || 
-            this is State.LoadingModel || 
-            this is State.UnloadingModel || 
-            this is State.Benchmarking || 
-            this is State.ProcessingSystemPrompt || 
+    get() = this is State.Initializing ||
+            this is State.LoadingModel ||
+            this is State.UnloadingModel ||
+            this is State.Benchmarking ||
+            this is State.ProcessingSystemPrompt ||
             this is State.ProcessingUserPrompt
 
 val State.isModelLoaded: Boolean
-    get() = this is State.ModelReady || 
-            this is State.Benchmarking || 
-            this is State.ProcessingSystemPrompt || 
-            this is State.ProcessingUserPrompt || 
+    get() = this is State.ModelReady ||
+            this is State.Benchmarking ||
+            this is State.ProcessingSystemPrompt ||
+            this is State.ProcessingUserPrompt ||
             this is State.Generating
 
 class UnsupportedArchitectureException : Exception()

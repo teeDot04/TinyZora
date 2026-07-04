@@ -37,7 +37,6 @@ extern "C" JNIEXPORT jint JNICALL
 Java_com_telo_tinyzora_core_inference_InferenceEngineImpl_load(
     JNIEnv* env, jobject, jstring path, jint ctx_size) {
     
-    // FIX: Free existing resources to prevent memory leaks on reload
     free_model_resources();
 
     const char* model_path = env->GetStringUTFChars(path, nullptr);
@@ -82,13 +81,24 @@ Java_com_telo_tinyzora_core_inference_InferenceEngineImpl_processSystemPrompt(
     
     const char* s   = env->GetStringUTFChars(prompt, nullptr);
     auto        voc = llama_model_get_vocab(g_model);
-    
-    // add_special=true: inject BOS once, at the very start of the sequence
     auto tokens = common_tokenize(voc, s, true, true);
     env->ReleaseStringUTFChars(prompt, s);
     
-    llama_batch batch = llama_batch_get_one(tokens.data(), tokens.size());
-    if (llama_decode(g_context, batch)) return 1;
+    // Explicit batch to prevent silent failures on long prompts
+    llama_batch batch = llama_batch_init(tokens.size(), 0, 1);
+    for (size_t i = 0; i < tokens.size(); i++) {
+        batch.token[i]   = tokens[i];
+        batch.pos[i]     = i;
+        batch.n_seq_id[i] = 1;
+        batch.seq_id[i][0] = 0;
+        batch.logits[i]  = (i == tokens.size() - 1) ? 1 : 0;
+    }
+    
+    if (llama_decode(g_context, batch)) {
+        llama_batch_free(batch);
+        return 1;
+    }
+    llama_batch_free(batch);
     
     g_system_prompt_pos = tokens.size();
     g_current_pos       = tokens.size();
@@ -102,13 +112,27 @@ Java_com_telo_tinyzora_core_inference_InferenceEngineImpl_processUserPrompt(
     
     const char* s   = env->GetStringUTFChars(prompt, nullptr);
     auto        voc = llama_model_get_vocab(g_model);
-    
-    // FIX: add_special=false — BOS was already added by processSystemPrompt
     auto tokens = common_tokenize(voc, s, false, true);
     env->ReleaseStringUTFChars(prompt, s);
     
-    llama_batch batch = llama_batch_get_one(tokens.data(), tokens.size());
-    if (llama_decode(g_context, batch)) return 1;
+    LOGI("User prompt tokens: %zu, generating %d tokens", tokens.size(), predict_length);
+
+    // Explicit batch for user prompt
+    llama_batch batch = llama_batch_init(tokens.size(), 0, 1);
+    for (size_t i = 0; i < tokens.size(); i++) {
+        batch.token[i]   = tokens[i];
+        batch.pos[i]     = g_current_pos + i;
+        batch.n_seq_id[i] = 1;
+        batch.seq_id[i][0] = 0;
+        batch.logits[i]  = (i == tokens.size() - 1) ? 1 : 0;
+    }
+    
+    if (llama_decode(g_context, batch)) {
+        LOGE("Failed to decode user prompt batch");
+        llama_batch_free(batch);
+        return 1;
+    }
+    llama_batch_free(batch);
     g_current_pos += tokens.size();
     
     if (g_sampler) { llama_sampler_free(g_sampler); g_sampler = nullptr; }
@@ -117,8 +141,6 @@ Java_com_telo_tinyzora_core_inference_InferenceEngineImpl_processUserPrompt(
     if (top_k > 0)       llama_sampler_chain_add(chain, llama_sampler_init_top_k(top_k));
     if (top_p < 1.0f)    llama_sampler_chain_add(chain, llama_sampler_init_top_p(top_p, 1));
     if (temperature > 0) llama_sampler_chain_add(chain, llama_sampler_init_temp(temperature));
-    
-    // FIX: terminal dist sampler — without this llama_sampler_sample returns garbage
     llama_sampler_chain_add(chain, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
     g_sampler = chain;
     
@@ -131,10 +153,24 @@ Java_com_telo_tinyzora_core_inference_InferenceEngineImpl_processUserPrompt(
         if (llama_vocab_is_eog(voc, token)) break;
         
         g_tokens.push_back(token);
-        batch = llama_batch_get_one(&token, 1);
-        if (llama_decode(g_context, batch)) break;
+        
+        // Explicit batch for single token generation
+        llama_batch gen_batch = llama_batch_init(1, 0, 1);
+        gen_batch.token[0]   = token;
+        gen_batch.pos[0]     = g_current_pos;
+        gen_batch.n_seq_id[0] = 1;
+        gen_batch.seq_id[0][0] = 0;
+        gen_batch.logits[0]  = 1;
+        
+        if (llama_decode(g_context, gen_batch)) {
+            LOGE("Failed to decode generated token");
+            llama_batch_free(gen_batch);
+            break;
+        }
+        llama_batch_free(gen_batch);
         g_current_pos++;
     }
+    LOGI("Generation finished. Total tokens: %zu", g_tokens.size());
     return 0;
 }
 
@@ -153,8 +189,6 @@ extern "C" JNIEXPORT jstring JNICALL
 Java_com_telo_tinyzora_core_inference_InferenceEngineImpl_benchModel(
     JNIEnv* env, jobject, jint pp, jint tg, jint pl, jint nr) {
     
-    // FIX: Removed llama_kv_cache_clear since the function name varies by version.
-    // The benchmark will still run fine.
     g_current_pos = 0;
     
     auto* chain = llama_sampler_chain_init(llama_sampler_chain_default_params());
