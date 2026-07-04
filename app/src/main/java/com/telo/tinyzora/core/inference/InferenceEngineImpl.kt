@@ -186,7 +186,7 @@ internal class InferenceEngineImpl private constructor(
 
     override suspend fun bench(pp: Int, tg: Int, pl: Int, nr: Int): String = withContext(llamaDispatcher) {
         check(_state.value is InferenceEngine.State.ModelReady) {
-            "Benchmark request discarded due to: $state"
+            "Benchmark request discarded due to: ${_state.value}"
         }
         Log.i(TAG, "Start benchmark (pp: $pp, tg: $tg, pl: $pl, nr: $nr)")
         _readyForSystemPrompt = false
