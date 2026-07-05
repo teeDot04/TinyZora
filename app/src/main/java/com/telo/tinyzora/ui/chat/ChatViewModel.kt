@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.compose.runtime.Immutable
 import com.telo.tinyzora.core.chat.ChatRepository
 import com.telo.tinyzora.core.inference.InferenceManager
+import com.telo.tinyzora.core.inference.InferenceResult
 import com.telo.tinyzora.core.memory.MemoryStore
 import com.telo.tinyzora.util.ConsoleLogger
 import kotlinx.coroutines.Dispatchers
@@ -61,7 +62,6 @@ data class StreamingState(
     val isGenerating: Boolean = false
 )
 
-// Helper for UI grouping
 data class GroupedMessage(val dateLabel: String, val messages: List<ChatMessage>)
 
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
@@ -73,7 +73,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val _uiState = MutableStateFlow(ChatUiState())
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
 
-    // Optimized grouped messages to prevent UI jank
     private val _groupedMessages = MutableStateFlow<List<GroupedMessage>>(emptyList())
     val groupedMessages: StateFlow<List<GroupedMessage>> = _groupedMessages.asStateFlow()
 
@@ -116,7 +115,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val imgUri = _attachedImage.value
         val aud = _attachedAudio.value
         val doc = _attachedDocumentText.value
-        
+
         if ((text.isBlank() && imgUri == null && aud == null && doc == null) || _streamingState.value.isGenerating) return
 
         val userMessage = ChatMessage(
@@ -129,7 +128,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val newMessages = listOf(userMessage) + _uiState.value.messages
         _uiState.value = _uiState.value.copy(messages = newMessages)
         updateGroupedMessages(newMessages)
-        
+
         _streamingState.value = StreamingState(isGenerating = true, streamingText = "")
         _attachedImage.value = null; _attachedAudio.value = null
         _attachedDocumentText.value = null; _attachedDocumentName.value = null
@@ -150,8 +149,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val thinkingBuilder = StringBuilder()
 
         try {
-            val flowProxy = inferenceManager.sendMessage(prompt, "") // History handled internally by new engine
-            
+            val flowProxy = inferenceManager.sendMessage(prompt, "")
+
             flowProxy.collect { result ->
                 if (result.isDone) return@collect
                 if (result.partialThinking != null) {
@@ -211,7 +210,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         inferenceManager.close()
     }
 
-    // Optimized grouping logic
     private fun updateGroupedMessages(messages: List<ChatMessage>) {
         val today = java.time.LocalDate.now()
         val grouped = messages.groupBy { msg ->
