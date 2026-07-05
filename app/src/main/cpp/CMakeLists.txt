@@ -1,5 +1,6 @@
-cmake_minimum_required(VERSION 3.22.1)
+cmake_minimum_required(VERSION 3.10.2)
 
+# Use CMAKE_SOURCE_DIR to get project root
 project("ai-chat" VERSION 1.0.0 LANGUAGES C CXX)
 
 set(CMAKE_C_STANDARD 11)
@@ -17,8 +18,8 @@ if(DEFINED ANDROID_ABI)
     endif()
 endif()
 
-set(LLAMA_SRC ${CMAKE_CURRENT_LIST_DIR}/../../../../llama.cpp)
-add_subdirectory(${LLAMA_SRC} build-llama)
+# FIX: Use CMAKE_SOURCE_DIR instead of relative path
+add_subdirectory(${CMAKE_SOURCE_DIR}/llama.cpp build-llama)
 
 add_library(ai-chat SHARED ai_chat.cpp)
 
@@ -29,15 +30,15 @@ target_compile_definitions(ai-chat PRIVATE
 )
 
 target_include_directories(ai-chat PRIVATE
-    ${LLAMA_SRC}
-    ${LLAMA_SRC}/common
-    ${LLAMA_SRC}/include
-    ${LLAMA_SRC}/ggml/include
-    ${LLAMA_SRC}/ggml/src
-    ${LLAMA_SRC}/vendor/nlohmann/json/single_include
+    ${CMAKE_SOURCE_DIR}/llama.cpp
+    ${CMAKE_SOURCE_DIR}/llama.cpp/include
+    ${CMAKE_SOURCE_DIR}/llama.cpp/ggml/include
+    ${CMAKE_SOURCE_DIR}/llama.cpp/ggml/src
+    ${CMAKE_SOURCE_DIR}/llama.cpp/vendor/nlohmann/json/single_include
 )
 
 target_link_libraries(ai-chat
+    PRIVATE
     llama
     ggml
     android
