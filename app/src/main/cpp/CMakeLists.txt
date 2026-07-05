@@ -21,9 +21,9 @@ if(${ANDROID_ABI} STREQUAL "arm64-v8a")
 endif()
 
 # ============================================================================
-# llama.cpp Submodule
+# llama.cpp Submodule (at repository root)
 # ============================================================================
-set(LLAMA_CPP_DIR ${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp)
+set(LLAMA_CPP_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../../llama.cpp)
 
 # Check if llama.cpp submodule exists
 if(EXISTS ${LLAMA_CPP_DIR}/CMakeLists.txt)
@@ -40,13 +40,14 @@ if(EXISTS ${LLAMA_CPP_DIR}/CMakeLists.txt)
     set(GGML_NATIVE OFF CACHE BOOL "" FORCE)
 
     # Add llama.cpp as subdirectory
-    add_subdirectory(${LLAMA_CPP_DIR} llama.cpp)
+    add_subdirectory(${LLAMA_CPP_DIR} build-llama)
 
     # Include directories from llama.cpp
     set(LLAMA_INCLUDE_DIRS
         ${LLAMA_CPP_DIR}/include
         ${LLAMA_CPP_DIR}/ggml/include
         ${LLAMA_CPP_DIR}/common
+        ${LLAMA_CPP_DIR}/vendor/nlohmann/json/single_include
     )
 
     set(LLAMA_AVAILABLE TRUE)
