@@ -21,6 +21,31 @@ static void free_model_resources() {
     g_current_pos = 0;
 }
 
+// Helper: tokenize using PUBLIC llama_tokenize API (not common_tokenize)
+static std::vector<llama_token> tokenize_string(const llama_vocab* vocab, const std::string& text, bool add_bos) {
+    // Estimate token count (4 chars per token on average)
+    int n_tokens_estimate = text.length() / 4 + 16;
+    std::vector<llama_token> tokens(n_tokens_estimate);
+
+    int n_tokens = llama_tokenize(
+        vocab,
+        text.c_str(),
+        text.length(),
+        tokens.data(),
+        tokens.size(),
+        add_bos,
+        true  // parse special tokens
+    );
+
+    if (n_tokens < 0) {
+        LOGE("Tokenization failed: %d", n_tokens);
+        return {};
+    }
+
+    tokens.resize(n_tokens);
+    return tokens;
+}
+
 // Helper: decode a batch of tokens at explicit positions
 static int decode_tokens(const std::vector<llama_token>& tokens, llama_pos start_pos) {
     int n = tokens.size();
@@ -84,9 +109,17 @@ Java_com_telo_tinyzora_core_inference_InferenceEngineImpl_processSystemPrompt(
     JNIEnv* env, jobject, jstring prompt) {
 
     const char* s = env->GetStringUTFChars(prompt, nullptr);
-    auto voc = llama_model_get_vocab(g_model);
-    auto tokens = common_tokenize(voc, s, true, true);
+    auto vocab = llama_model_get_vocab(g_model);
+
+    // FIX: Use llama_tokenize instead of common_tokenize
+    auto tokens = tokenize_string(vocab, s, true);
+
     env->ReleaseStringUTFChars(prompt, s);
+
+    if (tokens.empty()) {
+        LOGE("Failed to tokenize system prompt");
+        return 1;
+    }
 
     if (decode_tokens(tokens, 0)) return 1;
     g_current_pos = tokens.size();
@@ -99,9 +132,11 @@ Java_com_telo_tinyzora_core_inference_InferenceEngineImpl_processUserPrompt(
     jfloat temperature, jint top_k, jfloat top_p) {
 
     const char* s = env->GetStringUTFChars(prompt, nullptr);
-    auto voc = llama_model_get_vocab(g_model);
-    // add_special=false: BOS already injected by system prompt
-    auto tokens = common_tokenize(voc, s, false, true);
+    auto vocab = llama_model_get_vocab(g_model);
+
+    // FIX: Use llama_tokenize instead of common_tokenize
+    auto tokens = tokenize_string(vocab, s, false);
+
     env->ReleaseStringUTFChars(prompt, s);
 
     LOGI("Decoding %zu user tokens at pos %d", tokens.size(), g_current_pos);
@@ -128,8 +163,8 @@ Java_com_telo_tinyzora_core_inference_InferenceEngineImpl_generateNextToken(JNIE
     auto token = llama_sampler_sample(g_sampler, g_context, -1);
     llama_sampler_accept(g_sampler, token);
 
-    auto voc = llama_model_get_vocab(g_model);
-    if (llama_vocab_is_eog(voc, token)) return nullptr;
+    auto vocab = llama_model_get_vocab(g_model);
+    if (llama_vocab_is_eog(vocab, token)) return nullptr;
 
     // Decode this single token at the correct position
     llama_batch batch = llama_batch_init(1, 0, 1);
@@ -147,7 +182,7 @@ Java_com_telo_tinyzora_core_inference_InferenceEngineImpl_generateNextToken(JNIE
     g_current_pos++;
 
     char buf[256];
-    int n = llama_token_to_piece(voc, token, buf, sizeof(buf), 0, true);
+    int n = llama_token_to_piece(vocab, token, buf, sizeof(buf), 0, true);
     if (n <= 0) return env->NewStringUTF("");
     return env->NewStringUTF(std::string(buf, n).c_str());
 }
