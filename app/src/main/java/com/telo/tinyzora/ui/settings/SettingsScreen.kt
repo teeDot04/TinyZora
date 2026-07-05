@@ -53,6 +53,8 @@ fun SettingsScreen(onBack: () -> Unit, onOpenAIConfig: () -> Unit = {}) {
                     }
                     userPrefs.setModelPath(dest.absolutePath)
                     currentModel = "Loaded: model.gguf"
+                    // Auto-initialize after model import
+                    inferenceManager.initialise()
                 } catch (e: Exception) {
                     currentModel = "Error: ${e.message}"
                 } finally {
@@ -129,10 +131,14 @@ fun SettingsScreen(onBack: () -> Unit, onOpenAIConfig: () -> Unit = {}) {
                                         return@launch
                                     }
 
-                                    // FIX: Use InferenceManager, not direct engine
-                                    inferenceManager.initialise()
-                                    benchmarkResult = engine.bench(512, 128, 1, 1)
+                                    // FIX: Use InferenceManager instead of direct engine
+                                    val success = inferenceManager.initialise()
+                                    if (!success) {
+                                        benchmarkResult = "Model failed to load"
+                                        return@launch
+                                    }
 
+                                    benchmarkResult = inferenceManager.bench(512, 128, 1, 1)
                                 } catch (e: Exception) {
                                     benchmarkResult = "Error: ${e.message}"
                                 } finally {
