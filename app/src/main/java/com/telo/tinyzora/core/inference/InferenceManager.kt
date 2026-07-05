@@ -33,7 +33,7 @@ data class InferenceResult(
 class InferenceManager(private val context: Context, private val memoryStore: MemoryStore) {
     private val TAG = "InferenceManager"
     private val mutex = Mutex()
-    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val scope = CoroutineScope(Dispatchers.IO + SuperJob())
     private val userPrefs = com.telo.tinyzora.core.security.UserPreferences(context)
 
     private val engine: InferenceEngine = InferenceEngineImpl.getInstance(context)
@@ -60,19 +60,31 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
                     return@withLock false
                 }
 
+                // Only reload if not initialized or model path changed
                 if (!isInitialized || modelPath != currentModelPath) {
                     systemPrompt = memoryStore.buildSystemPrompt()
+                    ConsoleLogger.d(TAG, "System prompt length: ${systemPrompt.length}")
+                    if (systemPrompt.isBlank()) {
+                        ConsoleLogger.w(TAG, "WARNING: System prompt is empty!")
+                    }
 
                     if (isInitialized) {
                         engine.cleanUp()
+                        isInitialized = false
                     }
 
+                    // Load model
                     engine.loadModel(modelPath)
-                    engine.setSystemPrompt(systemPrompt)
+
+                    // Set system prompt only if not empty
+                    if (systemPrompt.isNotBlank()) {
+                        engine.setSystemPrompt(systemPrompt)
+                    }
 
                     currentModelPath = modelPath
                     isInitialized = true
 
+                    // Process pending transcript if exists
                     val pendingFile = File(context.filesDir, "pending_transcript.json")
                     if (pendingFile.exists()) {
                         try {
@@ -97,13 +109,14 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
                         .scheduleAllReminders(context, memoryStore)
                     sharedPrefs.registerOnSharedPreferenceChangeListener(modelPathListener)
 
-                    ConsoleLogger.d(TAG, "InferenceManager initialized")
+                    ConsoleLogger.d(TAG, "InferenceManager initialized successfully")
                 }
-                true
+                return@withLock true
             } catch (e: Exception) {
                 ConsoleLogger.e(TAG, "Failed to initialize: ${e.message}", e)
                 isInitialized = false
-                false
+                currentModelPath = ""
+                return@withLock false
             }
         }
     }
@@ -120,6 +133,14 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
     }
 
     suspend fun resetConversation() = resetConversation(null)
+
+    // NEW: Benchmark through InferenceManager
+    suspend fun bench(pp: Int, tg: Int, pl: Int, nr: Int): String {
+        if (!isInitialized) {
+            throw RuntimeException("Model not loaded: Please import a model in Settings")
+        }
+        return engine.bench(pp, tg, pl, nr)
+    }
 
     fun sendMessage(text: String, contextHistory: String): Flow<InferenceResult> = channelFlow {
         mutex.withLock {
@@ -176,13 +197,24 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
                 return@withLock
             }
 
-            engine.cleanUp()
-            engine.loadModel(modelPath)
-            systemPrompt = memoryStore.buildSystemPrompt()
-            engine.setSystemPrompt(systemPrompt)
-            currentModelPath = modelPath
-            isInitialized = true
-            ConsoleLogger.d(TAG, "Model reloaded successfully.")
+            if (modelPath != currentModelPath) {
+                engine.cleanUp()
+                isInitialized = false
+
+                try {
+                    engine.loadModel(modelPath)
+                    systemPrompt = memoryStore.buildSystemPrompt()
+                    if (systemPrompt.isNotBlank()) {
+                        engine.setSystemPrompt(systemPrompt)
+                    }
+                    currentModelPath = modelPath
+                    isInitialized = true
+                    ConsoleLogger.d(TAG, "Model reloaded successfully.")
+                } catch (e: Exception) {
+                    ConsoleLogger.e(TAG, "Failed to reload model", e)
+                    isInitialized = false
+                }
+            }
         }
     }
 
