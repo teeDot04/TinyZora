@@ -17,10 +17,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.telo.tinyzora.core.inference.InferenceEngineImpl
 import com.telo.tinyzora.core.inference.InferenceManager
 import com.telo.tinyzora.core.memory.MemoryStore
 import com.telo.tinyzora.core.security.UserPreferences
+import com.telo.tinyzora.util.ConsoleLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -32,139 +32,4 @@ fun SettingsScreen(onBack: () -> Unit, onOpenAIConfig: () -> Unit = {}) {
     val context = LocalContext.current
     val userPrefs = remember { UserPreferences(context) }
     val scope = rememberCoroutineScope()
-    val engine = remember { InferenceEngineImpl.getInstance(context) }
-    val inferenceManager = remember { InferenceManager(context, MemoryStore(context)) }
-
-    var isLoading by remember { mutableStateOf(false) }
-    var currentModel by remember { mutableStateOf(userPrefs.getModelPath().ifEmpty { "No model selected" }) }
-    var benchmarkResult by remember { mutableStateOf("") }
-    var isBenchmarking by remember { mutableStateOf(false) }
-
-    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-        uri?.let {
-            scope.launch {
-                isLoading = true
-                try {
-                    val dest = File(context.filesDir, "model.gguf")
-                    withContext(Dispatchers.IO) {
-                        context.contentResolver.openInputStream(it)?.use { i ->
-                            dest.outputStream().use { o -> i.copyTo(o) }
-                        }
-                    }
-                    userPrefs.setModelPath(dest.absolutePath)
-                    currentModel = "Loaded: model.gguf"
-                    // Auto-initialize after model import
-                    inferenceManager.initialise()
-                } catch (e: Exception) {
-                    currentModel = "Error: ${e.message}"
-                } finally {
-                    isLoading = false
-                }
-            }
-        }
-    }
-
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Settings") },
-                navigationIcon = {
-                    IconButton(onClick = onBack, enabled = !isBenchmarking) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
-            )
-        },
-        containerColor = MaterialTheme.colorScheme.background
-    ) { padding ->
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp)
-        ) {
-            Text("App Modules", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 16.dp))
-
-            Surface(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 16.dp)
-                    .clickable { if (!isBenchmarking) onOpenAIConfig() },
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant
-            ) {
-                Column(Modifier.padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Edit, null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.width(16.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text("AI Configuration", style = MaterialTheme.typography.titleMedium)
-                            Text("Temperature, Top-K, Top-P, context size", style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                    Spacer(Modifier.height(16.dp))
-                    Text("Model:", style = MaterialTheme.typography.bodySmall)
-                    Text(currentModel, style = MaterialTheme.typography.bodyMedium)
-                    Spacer(Modifier.height(16.dp))
-
-                    Button(
-                        onClick = { filePicker.launch("*/*") },
-                        Modifier.fillMaxWidth(),
-                        enabled = !isLoading && !isBenchmarking
-                    ) {
-                        if (isLoading) CircularProgressIndicator(Modifier.size(20.dp))
-                        else Text("Import .gguf Model")
-                    }
-                    Spacer(Modifier.height(12.dp))
-
-                    OutlinedButton(
-                        onClick = {
-                            scope.launch {
-                                isBenchmarking = true
-                                benchmarkResult = "Running..."
-                                try {
-                                    val path = userPrefs.getModelPath()
-                                    if (path.isEmpty()) {
-                                        benchmarkResult = "Import a model first"
-                                        return@launch
-                                    }
-
-                                    // FIX: Use InferenceManager instead of direct engine
-                                    val success = inferenceManager.initialise()
-                                    if (!success) {
-                                        benchmarkResult = "Model failed to load"
-                                        return@launch
-                                    }
-
-                                    benchmarkResult = inferenceManager.bench(512, 128, 1, 1)
-                                } catch (e: Exception) {
-                                    benchmarkResult = "Error: ${e.message}"
-                                } finally {
-                                    isBenchmarking = false
-                                }
-                            }
-                        },
-                        Modifier.fillMaxWidth(),
-                        enabled = !isBenchmarking
-                    ) {
-                        if (isBenchmarking) CircularProgressIndicator(Modifier.size(20.dp))
-                        else Text("Run Benchmark")
-                    }
-
-                    if (benchmarkResult.isNotEmpty()) {
-                        Spacer(Modifier.height(12.dp))
-                        Surface(color = MaterialTheme.colorScheme.background, shape = RoundedCornerShape(8.dp)) {
-                            Text(
-                                benchmarkResult,
-                                Modifier.padding(12.dp),
-                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
+    val inferenceManager = remember { InferenceManager(context
