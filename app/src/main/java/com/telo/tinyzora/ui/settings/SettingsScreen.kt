@@ -29,16 +29,16 @@ import java.io.File
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(onBack: () -> Unit, onOpenAIConfig: () -> Unit = {}) {
-    val context   = LocalContext.current
+    val context = LocalContext.current
     val userPrefs = remember { UserPreferences(context) }
-    val scope     = rememberCoroutineScope()
-    val engine    = remember { InferenceEngineImpl.getInstance(context) }
+    val scope = rememberCoroutineScope()
+    val engine = remember { InferenceEngineImpl.getInstance(context) }
     val inferenceManager = remember { InferenceManager(context, MemoryStore(context)) }
 
-    var isLoading       by remember { mutableStateOf(false) }
-    var currentModel    by remember { mutableStateOf(userPrefs.getModelPath().ifEmpty { "No model selected" }) }
+    var isLoading by remember { mutableStateOf(false) }
+    var currentModel by remember { mutableStateOf(userPrefs.getModelPath().ifEmpty { "No model selected" }) }
     var benchmarkResult by remember { mutableStateOf("") }
-    var isBenchmarking  by remember { mutableStateOf(false) }
+    var isBenchmarking by remember { mutableStateOf(false) }
 
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         uri?.let {
@@ -54,7 +54,7 @@ fun SettingsScreen(onBack: () -> Unit, onOpenAIConfig: () -> Unit = {}) {
                     userPrefs.setModelPath(dest.absolutePath)
                     currentModel = "Loaded: model.gguf"
                 } catch (e: Exception) {
-                    currentModel = "Error: " + e.message
+                    currentModel = "Error: ${e.message}"
                 } finally {
                     isLoading = false
                 }
@@ -129,11 +129,12 @@ fun SettingsScreen(onBack: () -> Unit, onOpenAIConfig: () -> Unit = {}) {
                                         return@launch
                                     }
 
+                                    // FIX: Use InferenceManager, not direct engine
                                     inferenceManager.initialise()
                                     benchmarkResult = engine.bench(512, 128, 1, 1)
 
                                 } catch (e: Exception) {
-                                    benchmarkResult = "Error: " + e.message
+                                    benchmarkResult = "Error: ${e.message}"
                                 } finally {
                                     isBenchmarking = false
                                 }
