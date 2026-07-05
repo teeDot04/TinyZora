@@ -18,6 +18,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.telo.tinyzora.core.inference.InferenceEngineImpl
+import com.telo.tinyzora.core.inference.InferenceManager
+import com.telo.tinyzora.core.memory.MemoryStore
 import com.telo.tinyzora.core.security.UserPreferences
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -31,6 +33,7 @@ fun SettingsScreen(onBack: () -> Unit, onOpenAIConfig: () -> Unit = {}) {
     val userPrefs = remember { UserPreferences(context) }
     val scope     = rememberCoroutineScope()
     val engine    = remember { InferenceEngineImpl.getInstance(context) }
+    val inferenceManager = remember { InferenceManager(context, MemoryStore(context)) }
 
     var isLoading       by remember { mutableStateOf(false) }
     var currentModel    by remember { mutableStateOf(userPrefs.getModelPath().ifEmpty { "No model selected" }) }
@@ -50,10 +53,10 @@ fun SettingsScreen(onBack: () -> Unit, onOpenAIConfig: () -> Unit = {}) {
                     }
                     userPrefs.setModelPath(dest.absolutePath)
                     currentModel = "Loaded: model.gguf"
-                } catch (e: Exception) { 
-                    currentModel = "Error: ${e.message}" 
-                } finally { 
-                    isLoading = false 
+                } catch (e: Exception) {
+                    currentModel = "Error: " + e.message
+                } finally {
+                    isLoading = false
                 }
             }
         }
@@ -87,7 +90,7 @@ fun SettingsScreen(onBack: () -> Unit, onOpenAIConfig: () -> Unit = {}) {
                     .fillMaxWidth()
                     .padding(bottom = 16.dp)
                     .clickable { if (!isBenchmarking) onOpenAIConfig() },
-                shape = RoundedCornerShape(16.dp), 
+                shape = RoundedCornerShape(16.dp),
                 color = MaterialTheme.colorScheme.surfaceVariant
             ) {
                 Column(Modifier.padding(16.dp)) {
@@ -105,11 +108,11 @@ fun SettingsScreen(onBack: () -> Unit, onOpenAIConfig: () -> Unit = {}) {
                     Spacer(Modifier.height(16.dp))
 
                     Button(
-                        onClick = { filePicker.launch("*/*") }, 
-                        Modifier.fillMaxWidth(), 
+                        onClick = { filePicker.launch("*/*") },
+                        Modifier.fillMaxWidth(),
                         enabled = !isLoading && !isBenchmarking
                     ) {
-                        if (isLoading) CircularProgressIndicator(Modifier.size(20.dp)) 
+                        if (isLoading) CircularProgressIndicator(Modifier.size(20.dp))
                         else Text("Import .gguf Model")
                     }
                     Spacer(Modifier.height(12.dp))
@@ -121,30 +124,25 @@ fun SettingsScreen(onBack: () -> Unit, onOpenAIConfig: () -> Unit = {}) {
                                 benchmarkResult = "Running..."
                                 try {
                                     val path = userPrefs.getModelPath()
-                                    if (path.isEmpty()) { 
+                                    if (path.isEmpty()) {
                                         benchmarkResult = "Import a model first"
-                                        return@launch 
+                                        return@launch
                                     }
-                                    
-                                    // Just load the model - engine handles its own state
-                                    engine.loadModel(path)
-                                    
-                                    // Run benchmark
+
+                                    inferenceManager.initialise()
                                     benchmarkResult = engine.bench(512, 128, 1, 1)
-                                    
-                                    // DO NOT call cleanUp() - keep model loaded for chat!
-                                    
-                                } catch (e: Exception) { 
-                                    benchmarkResult = "Error: ${e.message}" 
-                                } finally { 
-                                    isBenchmarking = false 
+
+                                } catch (e: Exception) {
+                                    benchmarkResult = "Error: " + e.message
+                                } finally {
+                                    isBenchmarking = false
                                 }
                             }
                         },
-                        Modifier.fillMaxWidth(), 
+                        Modifier.fillMaxWidth(),
                         enabled = !isBenchmarking
                     ) {
-                        if (isBenchmarking) CircularProgressIndicator(Modifier.size(20.dp)) 
+                        if (isBenchmarking) CircularProgressIndicator(Modifier.size(20.dp))
                         else Text("Run Benchmark")
                     }
 
@@ -152,8 +150,8 @@ fun SettingsScreen(onBack: () -> Unit, onOpenAIConfig: () -> Unit = {}) {
                         Spacer(Modifier.height(12.dp))
                         Surface(color = MaterialTheme.colorScheme.background, shape = RoundedCornerShape(8.dp)) {
                             Text(
-                                benchmarkResult, 
-                                Modifier.padding(12.dp), 
+                                benchmarkResult,
+                                Modifier.padding(12.dp),
                                 fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
                             )
                         }

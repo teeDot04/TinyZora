@@ -1,4 +1,5 @@
 cmake_minimum_required(VERSION 3.22.1)
+
 project("ai-chat" VERSION 1.0.0 LANGUAGES C CXX)
 
 set(CMAKE_C_STANDARD 11)
@@ -6,41 +7,88 @@ set(CMAKE_C_STANDARD_REQUIRED true)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED true)
 
-if(DEFINED ANDROID_ABI)
-    if(ANDROID_ABI STREQUAL "arm64-v8a")
-        set(GGML_SYSTEM_ARCH "ARM")
-        set(GGML_CPU_KLEIDIAI ON)
-        set(GGML_OPENMP ON)
-    else()
-        message(FATAL_ERROR "Unsupported ABI: ${ANDROID_ABI}")
-    endif()
+# Compiler flags for optimization
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -DNDEBUG")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -DNDEBUG")
+
+# 16 KB page size compatibility for Android 15+
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-z,max-page-size=16384")
+
+# ARM NEON optimization for ARM architectures
+if(${ANDROID_ABI} STREQUAL "arm64-v8a")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=armv8-a+fp+simd")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=armv8-a+fp+simd")
 endif()
 
-set(LLAMA_SRC ${CMAKE_CURRENT_LIST_DIR}/../../../../llama.cpp)
-add_subdirectory(${LLAMA_SRC} build-llama)
+# ============================================================================
+# llama.cpp Submodule
+# ============================================================================
+set(LLAMA_CPP_DIR ${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp)
 
-add_library(${CMAKE_PROJECT_NAME} SHARED
+# Check if llama.cpp submodule exists
+if(EXISTS ${LLAMA_CPP_DIR}/CMakeLists.txt)
+    message(STATUS "Found llama.cpp at ${LLAMA_CPP_DIR}")
+
+    # llama.cpp build options
+    set(LLAMA_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(LLAMA_BUILD_SERVER OFF CACHE BOOL "" FORCE)
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    set(LLAMA_STATIC ON CACHE BOOL "" FORCE)
+    set(GGML_STATIC ON CACHE BOOL "" FORCE)
+    set(LLAMA_NATIVE OFF CACHE BOOL "" FORCE)
+    set(GGML_NATIVE OFF CACHE BOOL "" FORCE)
+
+    # Add llama.cpp as subdirectory
+    add_subdirectory(${LLAMA_CPP_DIR} llama.cpp)
+
+    # Include directories from llama.cpp
+    set(LLAMA_INCLUDE_DIRS
+        ${LLAMA_CPP_DIR}/include
+        ${LLAMA_CPP_DIR}/ggml/include
+        ${LLAMA_CPP_DIR}/common
+    )
+
+    set(LLAMA_AVAILABLE TRUE)
+else()
+    message(WARNING "llama.cpp not found at ${LLAMA_CPP_DIR}")
+    message(WARNING "Run: git submodule update --init --recursive")
+    set(LLAMA_AVAILABLE FALSE)
+endif()
+
+# ============================================================================
+# JNI Library
+# ============================================================================
+
+# JNI source files
+set(JNI_SOURCES
     ai_chat.cpp
 )
 
-target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
-    GGML_SYSTEM_ARCH=${GGML_SYSTEM_ARCH}
-    GGML_CPU_KLEIDIAI=$<BOOL:${GGML_CPU_KLEIDIAI}>
-    GGML_OPENMP=$<BOOL:${GGML_OPENMP}>
+# Create the shared library
+add_library(ai-chat SHARED ${JNI_SOURCES})
+
+# Include directories
+target_include_directories(ai-chat PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${LLAMA_INCLUDE_DIRS}
 )
 
-target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
-    ${LLAMA_SRC}
-    ${LLAMA_SRC}/common
-    ${LLAMA_SRC}/include
-    ${LLAMA_SRC}/ggml/include
-    ${LLAMA_SRC}/ggml/src
-    ${LLAMA_SRC}/vendor/nlohmann/json/single_include
-)
+# Find required Android libraries
+find_library(log-lib log)
+find_library(android-lib android)
 
-target_link_libraries(${CMAKE_PROJECT_NAME}
-    llama
-    llama-common
-    android
-    log
-)
+# Link libraries
+if(LLAMA_AVAILABLE)
+    target_link_libraries(ai-chat
+        llama
+        ggml
+        ${log-lib}
+        ${android-lib}
+    )
+else()
+    target_link_libraries(ai-chat
+        ${log-lib}
+        ${android-lib}
+    )
+endif()

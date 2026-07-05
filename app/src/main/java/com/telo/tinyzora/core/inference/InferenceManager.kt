@@ -35,17 +35,17 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
     private val mutex = Mutex()
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val userPrefs = com.telo.tinyzora.core.security.UserPreferences(context)
-    
-    // Use the NEW clean InferenceEngine instead of old LlamaAndroid
+
     private val engine: InferenceEngine = InferenceEngineImpl.getInstance(context)
-    
+
     private val sharedPrefs: SharedPreferences =
         context.getSharedPreferences("tinyzora_prefs", Context.MODE_PRIVATE)
     private var systemPrompt = ""
     private var isInitialized = false
+    private var currentModelPath: String = ""
 
     private val modelPathListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-        if (key == "model_path" && isInitialized) {
+        if (key == "model_path") {
             scope.launch { reloadModel() }
         }
     }
@@ -53,46 +53,54 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
     suspend fun initialise(chatContext: String? = null): Boolean = withContext(Dispatchers.IO) {
         mutex.withLock {
             try {
-                if (isInitialized) return@withLock true
-                
-                systemPrompt = memoryStore.buildSystemPrompt()
                 val modelPath = userPrefs.getModelPath()
                 if (modelPath.isBlank()) {
                     ConsoleLogger.e(TAG, "No model selected")
+                    isInitialized = false
                     return@withLock false
                 }
 
-                // Load model using NEW Engine
-                engine.loadModel(modelPath)
-                engine.setSystemPrompt(systemPrompt)
+                if (!isInitialized || modelPath != currentModelPath) {
+                    systemPrompt = memoryStore.buildSystemPrompt()
 
-                val pendingFile = File(context.filesDir, "pending_transcript.json")
-                if (pendingFile.exists()) {
-                    try {
-                        val transcript: List<Pair<String, String>> =
-                            Json { ignoreUnknownKeys = true }.decodeFromString(pendingFile.readText())
-                        val fileTime = ZonedDateTime.ofInstant(
-                            java.time.Instant.ofEpochMilli(pendingFile.lastModified()),
-                            ZoneId.systemDefault()
-                        )
-                        MemoryConsolidator(memoryStore, fileTime)
-                            .consolidate(transcript, this@InferenceManager::generateOnceUnlocked)
-                    } catch (e: Exception) {
-                        ConsoleLogger.e(TAG, "Failed to process pending transcript", e)
-                    } finally {
-                        pendingFile.delete()
+                    if (isInitialized) {
+                        engine.cleanUp()
                     }
-                }
 
-                com.telo.tinyzora.core.notifications.ReminderScheduler
-                    .scheduleAllReminders(context, memoryStore)
-                sharedPrefs.registerOnSharedPreferenceChangeListener(modelPathListener)
-                
-                isInitialized = true
-                ConsoleLogger.d(TAG, "InferenceManager initialized with NEW Engine")
+                    engine.loadModel(modelPath)
+                    engine.setSystemPrompt(systemPrompt)
+
+                    currentModelPath = modelPath
+                    isInitialized = true
+
+                    val pendingFile = File(context.filesDir, "pending_transcript.json")
+                    if (pendingFile.exists()) {
+                        try {
+                            val transcript: List<Pair<String, String>> =
+                                Json { ignoreUnknownKeys = true }.decodeFromString(pendingFile.readText())
+                            val fileTime = ZonedDateTime.ofInstant(
+                                java.time.Instant.ofEpochMilli(pendingFile.lastModified()),
+                                ZoneId.systemDefault()
+                            )
+                            MemoryConsolidator(memoryStore, fileTime)
+                                .consolidate(transcript, this@InferenceManager::generateOnceUnlocked)
+                        } catch (e: Exception) {
+                            ConsoleLogger.e(TAG, "Failed to process pending transcript", e)
+                        } finally {
+                            pendingFile.delete()
+                        }
+                    }
+
+                    com.telo.tinyzora.core.notifications.ReminderScheduler
+                        .scheduleAllReminders(context, memoryStore)
+                    sharedPrefs.registerOnSharedPreferenceChangeListener(modelPathListener)
+
+                    ConsoleLogger.d(TAG, "InferenceManager initialized with NEW Engine")
+                }
                 true
             } catch (e: Exception) {
                 ConsoleLogger.e(TAG, "Failed to initialize: ${e.message}", e)
+                isInitialized = false
                 false
             }
         }
@@ -151,6 +159,7 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
             mutex.withLock {
                 engine.cleanUp()
                 isInitialized = false
+                currentModelPath = ""
                 cancel()
                 ConsoleLogger.d(TAG, "InferenceManager closed cleanly.")
             }
@@ -160,12 +169,17 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
     private suspend fun reloadModel() {
         mutex.withLock {
             val modelPath = userPrefs.getModelPath()
-            if (modelPath.isBlank()) return@withLock
-            
+            if (modelPath.isBlank()) {
+                isInitialized = false
+                return@withLock
+            }
+
             engine.cleanUp()
             engine.loadModel(modelPath)
             systemPrompt = memoryStore.buildSystemPrompt()
             engine.setSystemPrompt(systemPrompt)
+            currentModelPath = modelPath
+            isInitialized = true
             ConsoleLogger.d(TAG, "Model reloaded successfully.")
         }
     }
