@@ -33,7 +33,7 @@ data class InferenceResult(
 class InferenceManager(private val context: Context, private val memoryStore: MemoryStore) {
     private val TAG = "InferenceManager"
     private val mutex = Mutex()
-    private val scope = CoroutineScope(Dispatchers.IO + SuperJob())
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val userPrefs = com.telo.tinyzora.core.security.UserPreferences(context)
 
     private val engine: InferenceEngine = InferenceEngineImpl.getInstance(context)
@@ -65,7 +65,7 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
                     systemPrompt = memoryStore.buildSystemPrompt()
                     ConsoleLogger.d(TAG, "System prompt length: ${systemPrompt.length}")
                     if (systemPrompt.isBlank()) {
-                        ConsoleLogger.w(TAG, "WARNING: System prompt is empty!")
+                        ConsoleLogger.e(TAG, "WARNING: System prompt is empty!")
                     }
 
                     if (isInitialized) {
