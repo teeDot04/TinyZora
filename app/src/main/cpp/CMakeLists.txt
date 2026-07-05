@@ -17,7 +17,7 @@ if(DEFINED ANDROID_ABI)
     endif()
 endif()
 
-# CORRECT PATH: From app/src/main/cpp/ go up 4 levels to repo root
+# Path from app/src/main/cpp/ to repository root
 add_subdirectory(../../../../llama.cpp build-llama)
 
 add_library(ai-chat SHARED ai_chat.cpp)
@@ -28,8 +28,10 @@ target_compile_definitions(ai-chat PRIVATE
     GGML_OPENMP=$<BOOL:${GGML_OPENMP}>
 )
 
+# FIX: Add common/ directory where common.h is located
 target_include_directories(ai-chat PRIVATE
     ../../../../llama.cpp
+    ../../../../llama.cpp/common  # <-- THIS WAS MISSING
     ../../../../llama.cpp/include
     ../../../../llama.cpp/ggml/include
     ../../../../llama.cpp/ggml/src
