@@ -1,6 +1,5 @@
 cmake_minimum_required(VERSION 3.10.2)
 
-# Use CMAKE_SOURCE_DIR to get project root
 project("ai-chat" VERSION 1.0.0 LANGUAGES C CXX)
 
 set(CMAKE_C_STANDARD 11)
@@ -18,7 +17,7 @@ if(DEFINED ANDROID_ABI)
     endif()
 endif()
 
-# FIX: Use CMAKE_SOURCE_DIR instead of relative path
+# FIX: Use CMAKE_SOURCE_DIR to go from app/src/main/cpp/ to repository root
 add_subdirectory(${CMAKE_SOURCE_DIR}/llama.cpp build-llama)
 
 add_library(ai-chat SHARED ai_chat.cpp)
