@@ -20,17 +20,15 @@ endif()
 set(LLAMA_SRC ${CMAKE_CURRENT_LIST_DIR}/../../../../llama.cpp)
 add_subdirectory(${LLAMA_SRC} build-llama)
 
-add_library(${CMAKE_PROJECT_NAME} SHARED
-    ai_chat.cpp
-)
+add_library(ai-chat SHARED ai_chat.cpp)
 
-target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
+target_compile_definitions(ai-chat PRIVATE
     GGML_SYSTEM_ARCH=${GGML_SYSTEM_ARCH}
     GGML_CPU_KLEIDIAI=$<BOOL:${GGML_CPU_KLEIDIAI}>
     GGML_OPENMP=$<BOOL:${GGML_OPENMP}>
 )
 
-target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
+target_include_directories(ai-chat PRIVATE
     ${LLAMA_SRC}
     ${LLAMA_SRC}/common
     ${LLAMA_SRC}/include
@@ -39,9 +37,8 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     ${LLAMA_SRC}/vendor/nlohmann/json/single_include
 )
 
-target_link_libraries(${CMAKE_PROJECT_NAME}
+target_link_libraries(ai-chat
     llama
-    llama-common
     ggml
     android
     log
