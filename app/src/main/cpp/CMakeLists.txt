@@ -45,6 +45,7 @@ target_include_directories(ai-chat PRIVATE
 target_link_libraries(ai-chat
     PRIVATE
     llama
+    common
     ggml
     android
     log
