@@ -36,7 +36,7 @@ internal class InferenceEngineImpl private constructor(
     private external fun prepare(): Int
     private external fun systemInfo(): String
     private external fun processSystemPrompt(systemPrompt: String): Int
-    // 4 params — no predictLength (cap lives in the Kotlin loop below)
+    // 4 params — no predictLength (cap lives in the Kotlin loop)
     private external fun processUserPrompt(
         userPrompt: String,
         temperature: Float,
@@ -49,8 +49,9 @@ internal class InferenceEngineImpl private constructor(
     private external fun shutdown()
 
     // ── init ─────────────────────────────────────────────────────────────────
-    // Runs on llamaDispatcher (limitedParallelism=1), so loadModel() queued
-    // after this will always see Initialized state — no race possible.
+    // Runs on llamaDispatcher (limitedParallelism=1). loadModel() queues behind
+    // it on the same dispatcher, so state is always Initialized by the time
+    // loadModel executes — no init race.
     init {
         llamaScope.launch {
             try {
@@ -67,44 +68,48 @@ internal class InferenceEngineImpl private constructor(
     }
 
     // ── model lifecycle ───────────────────────────────────────────────────────
-    override suspend fun loadModel(pathToModel: String) = withContext(llamaDispatcher) {
-        check(_state.value is InferenceEngine.State.Initialized) {
-            "loadModel requires Initialized, got ${_state.value}"
-        }
-        try {
-            _readyForSystemPrompt = false
-            _state.value = InferenceEngine.State.LoadingModel
-            val ctxSize = userPrefs.getCtxSize()
-            Log.i(TAG, "load $pathToModel ctx=$ctxSize")
-            load(pathToModel, ctxSize).let {
-                if (it != 0) throw IllegalStateException("load() = $it")
+    override suspend fun loadModel(pathToModel: String) {
+        withContext(llamaDispatcher) {
+            check(_state.value is InferenceEngine.State.Initialized) {
+                "loadModel requires Initialized, got ${_state.value}"
             }
-            prepare().let {
-                if (it != 0) throw IllegalStateException("prepare() = $it")
+            try {
+                _readyForSystemPrompt = false
+                _state.value = InferenceEngine.State.LoadingModel
+                val ctxSize = userPrefs.getCtxSize()
+                Log.i(TAG, "load $pathToModel ctx=$ctxSize")
+                load(pathToModel, ctxSize).let {
+                    if (it != 0) throw IllegalStateException("load() = $it")
+                }
+                prepare().let {
+                    if (it != 0) throw IllegalStateException("prepare() = $it")
+                }
+                _readyForSystemPrompt = true
+                _cancelGeneration     = false
+                _state.value = InferenceEngine.State.ModelReady
+                Log.i(TAG, "model ready")
+            } catch (e: Exception) {
+                _state.value = InferenceEngine.State.Error(e)
+                throw e
             }
-            _readyForSystemPrompt = true
-            _cancelGeneration     = false
-            _state.value = InferenceEngine.State.ModelReady
-            Log.i(TAG, "model ready")
-        } catch (e: Exception) {
-            _state.value = InferenceEngine.State.Error(e)
-            throw e
         }
     }
 
-    override suspend fun setSystemPrompt(prompt: String) = withContext(llamaDispatcher) {
-        check(_readyForSystemPrompt && _state.value is InferenceEngine.State.ModelReady)
-        try {
-            _readyForSystemPrompt = false
-            _state.value = InferenceEngine.State.ProcessingSystemPrompt
-            processSystemPrompt(prompt).let {
-                if (it != 0) throw IllegalStateException("processSystemPrompt() = $it")
+    override suspend fun setSystemPrompt(prompt: String) {
+        withContext(llamaDispatcher) {
+            check(_readyForSystemPrompt && _state.value is InferenceEngine.State.ModelReady)
+            try {
+                _readyForSystemPrompt = false
+                _state.value = InferenceEngine.State.ProcessingSystemPrompt
+                processSystemPrompt(prompt).let {
+                    if (it != 0) throw IllegalStateException("processSystemPrompt() = $it")
+                }
+                _state.value = InferenceEngine.State.ModelReady
+                Log.i(TAG, "system prompt set")
+            } catch (e: Exception) {
+                _state.value = InferenceEngine.State.Error(e)
+                throw e
             }
-            _state.value = InferenceEngine.State.ModelReady
-            Log.i(TAG, "system prompt set")
-        } catch (e: Exception) {
-            _state.value = InferenceEngine.State.Error(e)
-            throw e
         }
     }
 
@@ -142,8 +147,8 @@ internal class InferenceEngineImpl private constructor(
     }.flowOn(llamaDispatcher)
 
     // ── bench ─────────────────────────────────────────────────────────────────
-    override suspend fun bench(pp: Int, tg: Int, pl: Int, nr: Int): String =
-        withContext(llamaDispatcher) {
+    override suspend fun bench(pp: Int, tg: Int, pl: Int, nr: Int): String {
+        return withContext(llamaDispatcher) {
             check(_state.value is InferenceEngine.State.ModelReady) {
                 "bench requires ModelReady, got ${_state.value}"
             }
@@ -154,6 +159,7 @@ internal class InferenceEngineImpl private constructor(
                 _state.value = InferenceEngine.State.ModelReady
             }
         }
+    }
 
     // ── cleanUp — handles ALL states, always lands on Initialized ─────────────
     override fun cleanUp() {
