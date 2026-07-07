@@ -38,12 +38,12 @@ internal class InferenceEngineImpl private constructor(
     private external fun systemInfo(): String
     private external fun benchModel(pp: Int, tg: Int, pl: Int, nr: Int): String
     private external fun processSystemPrompt(systemPrompt: String): Int
-    private external fun processUserPrompt(userPrompt: String, predictLength: Int, temperature: Float, topK: Int, topP: Float): Int
+    // FIX 1: signature matches C++ exactly — (String, Float, Int, Float)
+    private external fun processUserPrompt(userPrompt: String, temperature: Float, topK: Int, topP: Float): Int
     private external fun generateNextToken(): String?
     private external fun unload()
     private external fun shutdown()
 
-    // FIX #1: Make init synchronous and wait for completion
     init {
         runBlocking(llamaDispatcher) {
             try {
@@ -63,35 +63,30 @@ internal class InferenceEngineImpl private constructor(
 
     override suspend fun loadModel(pathToModel: String) {
         withContext(llamaDispatcher) {
-            check(_state.value is InferenceEngine.State.Initialized)
+            // FIX 2: recover from Error state so a retry works
+            if (_state.value is InferenceEngine.State.Error) {
+                Log.w(TAG, "Resetting from Error state before load")
+                _state.value = InferenceEngine.State.Initialized
+            }
+            check(_state.value is InferenceEngine.State.Initialized) {
+                "loadModel requires Initialized, got ${_state.value}"
+            }
             try {
                 val modelFile = File(pathToModel)
-                Log.i(TAG, "Attempting to load model from: $pathToModel")
                 Log.i(TAG, "File exists: ${modelFile.exists()}, size: ${modelFile.length()} bytes")
-
-                val ctxSize = userPrefs.getCtxSize()
-                Log.i(TAG, "Loading model with ctx_size=$ctxSize")
                 _readyForSystemPrompt = false
                 _state.value = InferenceEngine.State.LoadingModel
 
-                val loadResult = load(pathToModel, ctxSize)
-                Log.i(TAG, "Native load() returned: $loadResult")
-                if (loadResult != 0) {
-                    Log.e(TAG, "Model load FAILED with error code: $loadResult")
-                    throw Exception("Failed to load model (error $loadResult)")
-                }
+                val loadResult = load(pathToModel, userPrefs.getCtxSize())
+                if (loadResult != 0) throw IllegalStateException("load() returned $loadResult")
 
                 val prepareResult = prepare()
-                Log.i(TAG, "Native prepare() returned: $prepareResult")
-                if (prepareResult != 0) {
-                    Log.e(TAG, "Model prepare FAILED with error code: $prepareResult")
-                    throw Exception("Failed to prepare resources")
-                }
+                if (prepareResult != 0) throw IllegalStateException("prepare() returned $prepareResult")
 
-                Log.i(TAG, "Model loaded successfully!")
                 _readyForSystemPrompt = true
                 _cancelGeneration = false
                 _state.value = InferenceEngine.State.ModelReady
+                Log.i(TAG, "Model loaded successfully")
             } catch (e: Exception) {
                 Log.e(TAG, "Error loading model", e)
                 _state.value = InferenceEngine.State.Error(e)
@@ -105,108 +100,91 @@ internal class InferenceEngineImpl private constructor(
             require(prompt.isNotBlank())
             check(_readyForSystemPrompt)
             check(_state.value is InferenceEngine.State.ModelReady)
-            Log.i(TAG, "Sending system prompt (length=${prompt.length})...")
             _readyForSystemPrompt = false
             _state.value = InferenceEngine.State.ProcessingSystemPrompt
-
             val result = processSystemPrompt(prompt)
-            Log.i(TAG, "System prompt processing returned: $result")
             if (result != 0) {
-                RuntimeException("Failed to process system prompt: $result").also {
-                    _state.value = InferenceEngine.State.Error(it)
-                    throw it
-                }
+                val ex = IllegalStateException("processSystemPrompt() returned $result")
+                _state.value = InferenceEngine.State.Error(ex)
+                throw ex
             }
-
-            Log.i(TAG, "System prompt processed successfully!")
             _state.value = InferenceEngine.State.ModelReady
+            Log.i(TAG, "System prompt set OK")
         }
     }
 
-    // FIX #3: Use callbackFlow to ensure JNI calls run on llamaDispatcher
     override fun sendUserPrompt(message: String, predictLength: Int): Flow<String> = callbackFlow {
         require(message.isNotEmpty())
         check(_state.value is InferenceEngine.State.ModelReady)
-
         try {
-            Log.i(TAG, "Sending user prompt with predictLength=$predictLength")
-            _readyForSystemPrompt = false
+            _cancelGeneration = false
             _state.value = InferenceEngine.State.ProcessingUserPrompt
 
             val temperature = userPrefs.getTemperature()
-            val topK = userPrefs.getTopK()
-            val topP = userPrefs.getTopP()
+            val topK        = userPrefs.getTopK()
+            val topP        = userPrefs.getTopP()
 
-            Log.i(TAG, "Using params: temp=$temperature, topK=$topK, topP=$topP")
-
-            // FIX #3: Wrap in withContext to ensure JNI runs on llamaDispatcher
+            // FIX 1: call without predictLength — matches C++ signature
             val result = withContext(llamaDispatcher) {
-                processUserPrompt(message, predictLength, temperature, topK, topP)
+                processUserPrompt(message, temperature, topK, topP)
             }
-
             if (result != 0) {
-                Log.e(TAG, "Failed to process user prompt: $result")
+                Log.e(TAG, "processUserPrompt() returned $result")
+                _state.value = InferenceEngine.State.ModelReady
                 close()
                 return@callbackFlow
             }
 
-            Log.i(TAG, "User prompt processed. Generating...")
             _state.value = InferenceEngine.State.Generating
-
-            while (!_cancelGeneration) {
-                val token = withContext(llamaDispatcher) { generateNextToken() }
-                token?.let { utf8token ->
-                    if (utf8token.isNotEmpty()) {
-                        trySend(utf8token)
-                    }
-                } ?: break
-            }
-
-            if (_cancelGeneration) {
-                Log.i(TAG, "Generation aborted.")
-            } else {
-                Log.i(TAG, "Generation complete!")
+            var n = 0
+            while (!_cancelGeneration && n < predictLength) {
+                val piece = withContext(llamaDispatcher) { generateNextToken() } ?: break
+                if (piece.isNotEmpty()) trySend(piece)
+                n++
             }
             _state.value = InferenceEngine.State.ModelReady
         } catch (e: CancellationException) {
-            Log.i(TAG, "Flow collection cancelled.")
             _state.value = InferenceEngine.State.ModelReady
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "Error during generation!", e)
+            Log.e(TAG, "Generation error", e)
             _state.value = InferenceEngine.State.Error(e)
             throw e
         }
+        awaitClose()
     }.flowOn(llamaDispatcher)
 
-    override suspend fun bench(pp: Int, tg: Int, pl: Int, nr: Int): String = withContext(llamaDispatcher) {
-        check(_state.value is InferenceEngine.State.ModelReady) { "Benchmark request discarded due to: ${_state.value}" }
-        Log.i(TAG, "Start benchmark (pp: $pp, tg: $tg, pl: $pl, nr: $nr)")
-        _readyForSystemPrompt = false
-        _state.value = InferenceEngine.State.Benchmarking
-        val result = benchModel(pp, tg, pl, nr)
-        Log.i(TAG, "Benchmark result: $result")
-        _state.value = InferenceEngine.State.ModelReady
-        result
-    }
+    override suspend fun bench(pp: Int, tg: Int, pl: Int, nr: Int): String =
+        withContext(llamaDispatcher) {
+            check(_state.value is InferenceEngine.State.ModelReady) {
+                "bench requires ModelReady, got ${_state.value}"
+            }
+            _state.value = InferenceEngine.State.Benchmarking
+            try { benchModel(pp, tg, pl, nr) }
+            finally { _state.value = InferenceEngine.State.ModelReady }
+        }
 
     override fun cleanUp() {
         _cancelGeneration = true
         runBlocking(llamaDispatcher) {
-            when (val state = _state.value) {
-                is InferenceEngine.State.ModelReady -> {
-                    Log.i(TAG, "Unloading model...")
+            when (_state.value) {
+                is InferenceEngine.State.ModelReady,
+                is InferenceEngine.State.Generating -> {
                     _readyForSystemPrompt = false
                     _state.value = InferenceEngine.State.UnloadingModel
                     unload()
                     _state.value = InferenceEngine.State.Initialized
-                    Log.i(TAG, "Model unloaded!")
+                    Log.i(TAG, "Model unloaded")
                 }
-                is InferenceEngine.State.Error -> {
-                    Log.i(TAG, "Resetting error state...")
+                // FIX 2: don't throw for Initialized or Error — just reset
+                is InferenceEngine.State.Error,
+                is InferenceEngine.State.Initialized -> {
                     _state.value = InferenceEngine.State.Initialized
                 }
-                else -> throw IllegalStateException("Cannot unload model in ${state.javaClass.simpleName}")
+                else -> {
+                    Log.w(TAG, "cleanUp() called in unexpected state: ${_state.value}")
+                    _state.value = InferenceEngine.State.Initialized
+                }
             }
         }
     }
@@ -215,10 +193,10 @@ internal class InferenceEngineImpl private constructor(
         _cancelGeneration = true
         runBlocking(llamaDispatcher) {
             _readyForSystemPrompt = false
-            when(_state.value) {
+            when (_state.value) {
                 is InferenceEngine.State.Uninitialized -> {}
-                is InferenceEngine.State.Initialized -> shutdown()
-                else -> { unload(); shutdown() }
+                is InferenceEngine.State.Initialized   -> shutdown()
+                else                                   -> { unload(); shutdown() }
             }
         }
         llamaScope.cancel()
