@@ -17,12 +17,12 @@ if(DEFINED ANDROID_ABI)
     endif()
 endif()
 
-# Get the repository root (works in both local and GitHub Actions)
-get_filename_component(REPO_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../../" ABSOLUTE)
+# Get the repository root
+set(REPO_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../..")
 message(STATUS "Repository root: ${REPO_ROOT}")
 
 # Add llama.cpp submodule
-add_subdirectory(${REPO_ROOT}/llama.cpp build-llama)
+add_subdirectory(llama.cpp build-llama)
 
 add_library(ai-chat SHARED ai_chat.cpp)
 
@@ -34,12 +34,12 @@ target_compile_definitions(ai-chat PRIVATE
 
 # Include all llama.cpp directories
 target_include_directories(ai-chat PRIVATE
-    ${REPO_ROOT}/llama.cpp
-    ${REPO_ROOT}/llama.cpp/common
-    ${REPO_ROOT}/llama.cpp/include
-    ${REPO_ROOT}/llama.cpp/ggml/include
-    ${REPO_ROOT}/llama.cpp/ggml/src
-    ${REPO_ROOT}/llama.cpp/vendor/nlohmann/json/single_include
+    ${CMAKE_CURRENT_LIST_DIR}/llama.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/llama.cpp/common
+    ${CMAKE_CURRENT_LIST_DIR}/llama.cpp/include
+    ${CMAKE_CURRENT_LIST_DIR}/llama.cpp/ggml/include
+    ${CMAKE_CURRENT_LIST_DIR}/llama.cpp/ggml/src
+    ${CMAKE_CURRENT_LIST_DIR}/llama.cpp/vendor/nlohmann/json/single_include
 )
 
 target_link_libraries(ai-chat
