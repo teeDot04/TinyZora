@@ -30,13 +30,11 @@ internal class InferenceEngineImpl private constructor(
     private val llamaDispatcher = Dispatchers.IO.limitedParallelism(1)
     private val llamaScope      = CoroutineScope(llamaDispatcher + SupervisorJob())
 
-    // ── JNI — param counts must match C++ exactly ────────────────────────────
     private external fun init()
     private external fun load(modelPath: String, ctxSize: Int): Int
     private external fun prepare(): Int
     private external fun systemInfo(): String
     private external fun processSystemPrompt(systemPrompt: String): Int
-    // 4 params — no predictLength (cap lives in the Kotlin loop)
     private external fun processUserPrompt(
         userPrompt: String,
         temperature: Float,
@@ -48,10 +46,6 @@ internal class InferenceEngineImpl private constructor(
     private external fun unload()
     private external fun shutdown()
 
-    // ── init ─────────────────────────────────────────────────────────────────
-    // Runs on llamaDispatcher (limitedParallelism=1). loadModel() queues behind
-    // it on the same dispatcher, so state is always Initialized by the time
-    // loadModel executes — no init race.
     init {
         llamaScope.launch {
             try {
@@ -62,12 +56,12 @@ internal class InferenceEngineImpl private constructor(
                 Log.i(TAG, "native ready")
             } catch (e: Exception) {
                 Log.e(TAG, "native init failed", e)
+                android.widget.Toast.makeText(context, "INIT: ${e::class.simpleName}: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
                 _state.value = InferenceEngine.State.Error(e)
             }
         }
     }
 
-    // ── model lifecycle ───────────────────────────────────────────────────────
     override suspend fun loadModel(pathToModel: String) {
         withContext(llamaDispatcher) {
             check(_state.value is InferenceEngine.State.Initialized) {
@@ -89,6 +83,7 @@ internal class InferenceEngineImpl private constructor(
                 _state.value = InferenceEngine.State.ModelReady
                 Log.i(TAG, "model ready")
             } catch (e: Exception) {
+                android.widget.Toast.makeText(context, "LOAD: ${e::class.simpleName}: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
                 _state.value = InferenceEngine.State.Error(e)
                 throw e
             }
@@ -113,7 +108,6 @@ internal class InferenceEngineImpl private constructor(
         }
     }
 
-    // ── generation ────────────────────────────────────────────────────────────
     override fun sendUserPrompt(message: String, predictLength: Int): Flow<String> = flow {
         require(message.isNotEmpty())
         check(_state.value is InferenceEngine.State.ModelReady)
@@ -146,7 +140,6 @@ internal class InferenceEngineImpl private constructor(
         }
     }.flowOn(llamaDispatcher)
 
-    // ── bench ─────────────────────────────────────────────────────────────────
     override suspend fun bench(pp: Int, tg: Int, pl: Int, nr: Int): String {
         return withContext(llamaDispatcher) {
             check(_state.value is InferenceEngine.State.ModelReady) {
@@ -161,15 +154,14 @@ internal class InferenceEngineImpl private constructor(
         }
     }
 
-    // ── cleanUp — handles ALL states, always lands on Initialized ─────────────
     override fun cleanUp() {
         _cancelGeneration = true
         runBlocking(llamaDispatcher) {
             _readyForSystemPrompt = false
             when (_state.value) {
                 is InferenceEngine.State.Uninitialized,
-                is InferenceEngine.State.Initializing  -> { /* nothing allocated yet */ }
-                is InferenceEngine.State.Initialized   -> { /* already clean */ }
+                is InferenceEngine.State.Initializing -> { }
+                is InferenceEngine.State.Initialized  -> { }
                 else -> {
                     _state.value = InferenceEngine.State.UnloadingModel
                     unload()
