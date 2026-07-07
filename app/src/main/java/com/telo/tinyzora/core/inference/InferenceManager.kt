@@ -24,6 +24,27 @@ import java.io.File
 import java.time.ZoneId
 import java.time.ZonedDateTime
 
+// FIX #2: ChatML Formatting Utility
+object ChatMLFormatter {
+    private const val SYSTEM_TOKEN = "<|im_start|>system\n"
+    private const val USER_TOKEN = "<|im_start|>user\n"
+    private const val ASSISTANT_TOKEN = "<|im_start|>assistant\n"
+    private const val END_TOKEN = "<|im_end|>\n"
+
+    fun formatSystemPrompt(prompt: String): String {
+        if (prompt.isBlank()) return ""
+        return "$SYSTEM_TOKEN$prompt$END_TOKEN"
+    }
+
+    fun formatUserPrompt(prompt: String): String {
+        return "$USER_TOKEN$prompt$END_TOKEN"
+    }
+
+    fun formatAssistantPrompt(): String {
+        return ASSISTANT_TOKEN
+    }
+}
+
 data class InferenceResult(
     val partialText: String = "",
     val isDone: Boolean = false,
@@ -60,13 +81,13 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
                     return@withLock false
                 }
 
-                // Only reload if not initialized or model path changed
+                val modelFile = File(modelPath)
+                ConsoleLogger.d(TAG, "Model file exists: ${modelFile.exists()}, size: ${modelFile.length()} bytes")
+
+                // FIX #1: Engine init is now synchronous, so we can proceed safely
                 if (!isInitialized || modelPath != currentModelPath) {
                     systemPrompt = memoryStore.buildSystemPrompt()
                     ConsoleLogger.d(TAG, "System prompt length: ${systemPrompt.length}")
-                    if (systemPrompt.isBlank()) {
-                        ConsoleLogger.e(TAG, "WARNING: System prompt is empty!")
-                    }
 
                     if (isInitialized) {
                         engine.cleanUp()
@@ -74,15 +95,21 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
                     }
 
                     // Load model
+                    ConsoleLogger.d(TAG, "Loading model from: $modelPath")
                     engine.loadModel(modelPath)
 
-                    // Set system prompt only if not empty
-                    if (systemPrompt.isNotBlank()) {
-                        engine.setSystemPrompt(systemPrompt)
+                    // FIX #2: Format with ChatML before sending
+                    val formattedSystemPrompt = ChatMLFormatter.formatSystemPrompt(systemPrompt)
+                    if (formattedSystemPrompt.isNotBlank()) {
+                        ConsoleLogger.d(TAG, "Setting formatted system prompt")
+                        engine.setSystemPrompt(formattedSystemPrompt)
+                    } else {
+                        ConsoleLogger.w(TAG, "System prompt is empty, skipping")
                     }
 
                     currentModelPath = modelPath
                     isInitialized = true
+                    ConsoleLogger.d(TAG, "InferenceManager initialized successfully")
 
                     // Process pending transcript if exists
                     val pendingFile = File(context.filesDir, "pending_transcript.json")
@@ -108,8 +135,6 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
                     com.telo.tinyzora.core.notifications.ReminderScheduler
                         .scheduleAllReminders(context, memoryStore)
                     sharedPrefs.registerOnSharedPreferenceChangeListener(modelPathListener)
-
-                    ConsoleLogger.d(TAG, "InferenceManager initialized successfully")
                 }
                 return@withLock true
             } catch (e: Exception) {
@@ -119,6 +144,13 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
                 return@withLock false
             }
         }
+    }
+
+    suspend fun bench(pp: Int, tg: Int, pl: Int, nr: Int): String {
+        if (!isInitialized) {
+            throw RuntimeException("Model not loaded: Please import a model in Settings")
+        }
+        return engine.bench(pp, tg, pl, nr)
     }
 
     suspend fun ensureModeIs(mode: String, chatContext: String? = null) {
@@ -133,14 +165,6 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
     }
 
     suspend fun resetConversation() = resetConversation(null)
-
-    // NEW: Benchmark through InferenceManager
-    suspend fun bench(pp: Int, tg: Int, pl: Int, nr: Int): String {
-        if (!isInitialized) {
-            throw RuntimeException("Model not loaded: Please import a model in Settings")
-        }
-        return engine.bench(pp, tg, pl, nr)
-    }
 
     fun sendMessage(text: String, contextHistory: String): Flow<InferenceResult> = channelFlow {
         mutex.withLock {
@@ -202,10 +226,12 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
                 isInitialized = false
 
                 try {
+                    ConsoleLogger.d(TAG, "Reloading model from: $modelPath")
                     engine.loadModel(modelPath)
                     systemPrompt = memoryStore.buildSystemPrompt()
-                    if (systemPrompt.isNotBlank()) {
-                        engine.setSystemPrompt(systemPrompt)
+                    val formattedSystemPrompt = ChatMLFormatter.formatSystemPrompt(systemPrompt)
+                    if (formattedSystemPrompt.isNotBlank()) {
+                        engine.setSystemPrompt(formattedSystemPrompt)
                     }
                     currentModelPath = modelPath
                     isInitialized = true
@@ -227,7 +253,11 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
         val responseBuilder = StringBuilder()
         var inThink = false
 
-        engine.sendUserPrompt(userMessage).collect { token ->
+        // FIX #2: Format user message with ChatML
+        val formattedUserMessage = ChatMLFormatter.formatUserPrompt(userMessage)
+
+        // FIX #4: Increased predict length from 64 to 512
+        engine.sendUserPrompt(formattedUserMessage, 512).collect { token ->
             var remaining = token
             while (remaining.isNotEmpty()) {
                 if (!inThink) {
