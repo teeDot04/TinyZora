@@ -24,7 +24,7 @@ import java.io.File
 import java.time.ZoneId
 import java.time.ZonedDateTime
 
-// FIX #2: ChatML Formatting Utility
+// ChatML Formatting Utility (FIX #2)
 object ChatMLFormatter {
     private const val SYSTEM_TOKEN = "<|im_start|>system\n"
     private const val USER_TOKEN = "<|im_start|>user\n"
@@ -38,10 +38,6 @@ object ChatMLFormatter {
 
     fun formatUserPrompt(prompt: String): String {
         return "$USER_TOKEN$prompt$END_TOKEN"
-    }
-
-    fun formatAssistantPrompt(): String {
-        return ASSISTANT_TOKEN
     }
 }
 
@@ -84,7 +80,6 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
                 val modelFile = File(modelPath)
                 ConsoleLogger.d(TAG, "Model file exists: ${modelFile.exists()}, size: ${modelFile.length()} bytes")
 
-                // FIX #1: Engine init is now synchronous, so we can proceed safely
                 if (!isInitialized || modelPath != currentModelPath) {
                     systemPrompt = memoryStore.buildSystemPrompt()
                     ConsoleLogger.d(TAG, "System prompt length: ${systemPrompt.length}")
@@ -94,11 +89,10 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
                         isInitialized = false
                     }
 
-                    // Load model
                     ConsoleLogger.d(TAG, "Loading model from: $modelPath")
                     engine.loadModel(modelPath)
 
-                    // FIX #2: Format with ChatML before sending
+                    // FIX #2: Format system prompt with ChatML
                     val formattedSystemPrompt = ChatMLFormatter.formatSystemPrompt(systemPrompt)
                     if (formattedSystemPrompt.isNotBlank()) {
                         ConsoleLogger.d(TAG, "Setting formatted system prompt")
@@ -111,7 +105,7 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
                     isInitialized = true
                     ConsoleLogger.d(TAG, "InferenceManager initialized successfully")
 
-                    // Process pending transcript if exists
+                    // Process pending transcript
                     val pendingFile = File(context.filesDir, "pending_transcript.json")
                     if (pendingFile.exists()) {
                         try {
@@ -256,8 +250,9 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
         // FIX #2: Format user message with ChatML
         val formattedUserMessage = ChatMLFormatter.formatUserPrompt(userMessage)
 
-        // FIX #4: Increased predict length from 64 to 512
-        engine.sendUserPrompt(formattedUserMessage, 512).collect { token ->
+        // FIX #4: Use max_tokens from UserPreferences instead of hardcoded 64
+        val maxTokens = userPrefs.getMaxTokens()
+        engine.sendUserPrompt(formattedUserMessage, maxTokens).collect { token ->
             var remaining = token
             while (remaining.isNotEmpty()) {
                 if (!inThink) {
