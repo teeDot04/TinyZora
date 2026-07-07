@@ -77,7 +77,7 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
 
                     val formattedSystemPrompt = ChatMLFormatter.formatSystemPrompt(systemPrompt)
                     if (formattedSystemPrompt.isNotBlank()) {
-                        ConsoleLogger.d(TAG, "Setting formatted system prompt")
+                        ConsoleLogger.d(TAG, "Setting system prompt")
                         engine.setSystemPrompt(formattedSystemPrompt)
                     } else {
                         ConsoleLogger.d(TAG, "System prompt is empty, skipping")
@@ -97,9 +97,7 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
                                 ZoneId.systemDefault()
                             )
                             MemoryConsolidator(memoryStore, fileTime)
-                                .consolidate(transcript) { prompt ->
-                                    generateOnceUnlocked(prompt)
-                                }
+                                .consolidate(transcript) { prompt -> generateOnceUnlocked(prompt) }
                         } catch (e: Exception) {
                             ConsoleLogger.e(TAG, "Failed to process pending transcript", e)
                         } finally {
@@ -122,9 +120,7 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
     }
 
     suspend fun bench(pp: Int, tg: Int, pl: Int, nr: Int): String {
-        if (!isInitialized) {
-            throw RuntimeException("Model not loaded: Please import a model in Settings")
-        }
+        if (!isInitialized) throw RuntimeException("Model not loaded")
         return engine.bench(pp, tg, pl, nr)
     }
 
@@ -142,15 +138,11 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
     suspend fun resetConversation() = resetConversation(null)
 
     fun sendMessage(text: String, contextHistory: String): Flow<InferenceResult> = channelFlow {
-        mutex.withLock {
-            streamText(text)
-        }
+        mutex.withLock { streamText(text) }
     }.flowOn(Dispatchers.IO)
 
     fun sendMessageWithImage(text: String, imageUri: Uri, contextHistory: String): Flow<InferenceResult> = channelFlow {
-        mutex.withLock {
-            send(InferenceResult("Image support coming soon!", true))
-        }
+        mutex.withLock { send(InferenceResult("Image support coming soon!", true)) }
     }.flowOn(Dispatchers.IO)
 
     fun sendMessageWithAudio(text: String, audioBytes: ByteArray, contextHistory: String): Flow<InferenceResult> = channelFlow {
@@ -169,9 +161,7 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
 
     private suspend fun generateOnceUnlocked(prompt: String): String {
         val sb = StringBuilder()
-        engine.sendUserPrompt(prompt).collect { token ->
-            sb.append(token)
-        }
+        engine.sendUserPrompt(prompt).collect { token -> sb.append(token) }
         return sb.toString().trim()
     }
 
@@ -191,23 +181,15 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
     private suspend fun reloadModel() {
         mutex.withLock {
             val modelPath = userPrefs.getModelPath()
-            if (modelPath.isBlank()) {
-                isInitialized = false
-                return@withLock
-            }
-
+            if (modelPath.isBlank()) { isInitialized = false; return@withLock }
             if (modelPath != currentModelPath) {
                 engine.cleanUp()
                 isInitialized = false
-
                 try {
-                    ConsoleLogger.d(TAG, "Reloading model from: $modelPath")
                     engine.loadModel(modelPath)
                     systemPrompt = memoryStore.buildSystemPrompt()
-                    val formattedSystemPrompt = ChatMLFormatter.formatSystemPrompt(systemPrompt)
-                    if (formattedSystemPrompt.isNotBlank()) {
-                        engine.setSystemPrompt(formattedSystemPrompt)
-                    }
+                    val formatted = ChatMLFormatter.formatSystemPrompt(systemPrompt)
+                    if (formatted.isNotBlank()) engine.setSystemPrompt(formatted)
                     currentModelPath = modelPath
                     isInitialized = true
                     ConsoleLogger.d(TAG, "Model reloaded successfully.")
@@ -220,7 +202,7 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
     }
 
     private suspend fun ProducerScope<InferenceResult>.streamText(userMessage: String) {
-        if (!engine.state.value.let { it is InferenceEngine.State.ModelReady }) {
+        if (_state_not_ready()) {
             send(InferenceResult("Model not loaded. Please select a model in Settings.", true))
             return
         }
@@ -228,7 +210,9 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
         val responseBuilder = StringBuilder()
         var inThink = false
 
-        val formattedUserMessage = ChatMLFormatter.formatUserPrompt(userMessage)
+        // FIX 3: append <|im_start|>assistant\n so model knows to respond
+        val formattedUserMessage =
+            ChatMLFormatter.formatUserPrompt(userMessage) + ChatMLFormatter.formatAssistantPrompt()
         val maxTokens = userPrefs.getMaxTokens()
 
         engine.sendUserPrompt(formattedUserMessage, maxTokens).collect { token ->
@@ -265,4 +249,7 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
         }
         send(InferenceResult("", true))
     }
+
+    private fun _state_not_ready() =
+        engine.state.value !is InferenceEngine.State.ModelReady
 }
