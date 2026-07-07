@@ -24,23 +24,6 @@ import java.io.File
 import java.time.ZoneId
 import java.time.ZonedDateTime
 
-// ChatML Formatting Utility (FIX #2)
-object ChatMLFormatter {
-    private const val SYSTEM_TOKEN = "<|im_start|>system\n"
-    private const val USER_TOKEN = "<|im_start|>user\n"
-    private const val ASSISTANT_TOKEN = "<|im_start|>assistant\n"
-    private const val END_TOKEN = "<|im_end|>\n"
-
-    fun formatSystemPrompt(prompt: String): String {
-        if (prompt.isBlank()) return ""
-        return "$SYSTEM_TOKEN$prompt$END_TOKEN"
-    }
-
-    fun formatUserPrompt(prompt: String): String {
-        return "$USER_TOKEN$prompt$END_TOKEN"
-    }
-}
-
 data class InferenceResult(
     val partialText: String = "",
     val isDone: Boolean = false,
@@ -92,20 +75,18 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
                     ConsoleLogger.d(TAG, "Loading model from: $modelPath")
                     engine.loadModel(modelPath)
 
-                    // FIX #2: Format system prompt with ChatML
                     val formattedSystemPrompt = ChatMLFormatter.formatSystemPrompt(systemPrompt)
                     if (formattedSystemPrompt.isNotBlank()) {
                         ConsoleLogger.d(TAG, "Setting formatted system prompt")
                         engine.setSystemPrompt(formattedSystemPrompt)
                     } else {
-                        ConsoleLogger.w(TAG, "System prompt is empty, skipping")
+                        ConsoleLogger.d(TAG, "System prompt is empty, skipping")
                     }
 
                     currentModelPath = modelPath
                     isInitialized = true
                     ConsoleLogger.d(TAG, "InferenceManager initialized successfully")
 
-                    // Process pending transcript
                     val pendingFile = File(context.filesDir, "pending_transcript.json")
                     if (pendingFile.exists()) {
                         try {
@@ -247,11 +228,9 @@ class InferenceManager(private val context: Context, private val memoryStore: Me
         val responseBuilder = StringBuilder()
         var inThink = false
 
-        // FIX #2: Format user message with ChatML
         val formattedUserMessage = ChatMLFormatter.formatUserPrompt(userMessage)
-
-        // FIX #4: Use max_tokens from UserPreferences instead of hardcoded 64
         val maxTokens = userPrefs.getMaxTokens()
+
         engine.sendUserPrompt(formattedUserMessage, maxTokens).collect { token ->
             var remaining = token
             while (remaining.isNotEmpty()) {
