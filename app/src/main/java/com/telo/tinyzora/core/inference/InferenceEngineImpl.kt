@@ -151,7 +151,6 @@ internal class InferenceEngineImpl private constructor(
             _state.value = InferenceEngine.State.Error(e)
             throw e
         }
-        awaitClose()
     }.flowOn(llamaDispatcher)
 
     override suspend fun bench(pp: Int, tg: Int, pl: Int, nr: Int): String =
